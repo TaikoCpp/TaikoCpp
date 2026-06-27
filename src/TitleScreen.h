@@ -1,8 +1,9 @@
 #pragma once
 #include "DxLib.h"
+#include "IScene.h"
 
-class TitleScreen {
+class TitleScreen : public IScene {
 public:
-    bool Update();
-    void Draw();
+    bool Update() override;
+    void Draw() override;
 };

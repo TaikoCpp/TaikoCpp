@@ -3,6 +3,9 @@
 #endif
 #include "TJAParser.h"
 #include <fstream>
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 #include <sstream>
 #include <algorithm>
 #include <cctype>
@@ -738,6 +741,40 @@ void TJAParser::handle_n(ParserState& state) {
     state.barline_display = state.start_branch_barline;
     state.balloon_index = state.branch_balloon_index;
     state.is_branching = true;
+}
+
+std::wstring TJAParser::ReadTitle(const fs::path& path) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f.is_open()) return path.stem().wstring();
+
+    std::string line;
+    while (std::getline(f, line)) {
+        // CR除去
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+
+        if (line.rfind("TITLE:", 0) == 0) {
+            std::string raw = line.substr(6);
+            // 末尾空白除去
+            while (!raw.empty() && (raw.back() == ' ' || raw.back() == '\t'))
+                raw.pop_back();
+
+#if defined(_WIN32)
+            // CP932 → wstring
+            int len = MultiByteToWideChar(932, 0, raw.c_str(), -1, nullptr, 0);
+            if (len > 1) {
+                std::wstring ws(len - 1, L'\0');
+                MultiByteToWideChar(932, 0, raw.c_str(), -1, ws.data(), len);
+                return ws;
+            }
+#endif
+            // フォールバック: そのままコピー
+            return std::wstring(raw.begin(), raw.end());
+        }
+
+        // #START が来たらヘッダ終わり
+        if (line.rfind("#START", 0) == 0) break;
+    }
+    return path.stem().wstring();
 }
 
 SongInfo TJAParser::parse() {

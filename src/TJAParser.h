@@ -19,6 +19,9 @@ public:
     // Parse the file and populate the SongInfo
     SongInfo parse();
 
+    // TJAファイルからTITLEだけを高速に読み取る（CP932対応）
+    static std::wstring ReadTitle(const fs::path& path);
+
 private:
     fs::path file_path;
     int start_delay_ms;

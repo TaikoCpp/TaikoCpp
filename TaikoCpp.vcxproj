@@ -141,6 +141,7 @@
     <ClCompile Include="src\TJAParser.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="IScene.h" />
     <ClInclude Include="src\SongInfo.h" />
     <ClInclude Include="src\SongSelect.h" />
     <ClInclude Include="src\TitleScreen.h" />
