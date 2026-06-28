@@ -1,17 +1,18 @@
 #include "DiffSelect.h"
 #include "TJAParser.h"
 #include <fstream>
+#include <map>
 #include <set>
 #include <algorithm>
 
-// ─── 難易度ごとの色定義 ──────────────────────────────────────────
+// ?????? ???x?????F??` ????????????????????????????????????????????????????????????????????????????????????
 unsigned int DiffSelect::DiffColor(int diffId) {
     switch (diffId) {
-    case 0: return GetColor(120, 200, 80);   // Easy   : 緑
-    case 1: return GetColor(80, 160, 220);  // Normal : 青
-    case 2: return GetColor(220, 160, 40);   // Hard   : 橙
-    case 3: return GetColor(220, 60, 60);   // Oni    : 赤
-    case 4: return GetColor(160, 80, 200);  // Edit   : 紫
+    case 0: return GetColor(120, 200, 80);   // Easy   : ??
+    case 1: return GetColor(80, 160, 220);  // Normal : ??
+    case 2: return GetColor(220, 160, 40);   // Hard   : ??
+    case 3: return GetColor(220, 60, 60);   // Oni    : ??
+    case 4: return GetColor(160, 80, 200);  // Edit   : ??
     default: return GetColor(150, 150, 150);
     }
 }
@@ -29,38 +30,39 @@ unsigned int DiffSelect::DiffColorDark(int diffId) {
 
 const wchar_t* DiffSelect::DiffName(int diffId) {
     switch (diffId) {
-    case 0: return L"かんたん";
-    case 1: return L"ふつう";
-    case 2: return L"むずかしい";
-    case 3: return L"おに";
+    case 0: return L"?????";
+    case 1: return L"????";
+    case 2: return L"?????????";
+    case 3: return L"????";
     case 4: return L"Edit";
     default: return L"???";
     }
 }
 
-// ─── コンストラクタ ───────────────────────────────────────────────
+// ?????? ?R???X?g???N?^ ??????????????????????????????????????????????????????????????????????????????????????????????
 DiffSelect::DiffSelect(const SongEntry& song) : songEntry(song) {
-    fontTitle = CreateFontToHandle(L"メイリオ", 36, 3, DX_FONTTYPE_ANTIALIASING_4X4);
-    fontButton = CreateFontToHandle(L"メイリオ", 28, 3, DX_FONTTYPE_ANTIALIASING_4X4);
-    fontLevel = CreateFontToHandle(L"メイリオ", 20, 2, DX_FONTTYPE_ANTIALIASING_4X4);
+    fontTitle = CreateFontToHandle(L"???C???I", 36, 3, DX_FONTTYPE_ANTIALIASING_4X4);
+    fontButton = CreateFontToHandle(L"???C???I", 28, 3, DX_FONTTYPE_ANTIALIASING_4X4);
+    fontLevel = CreateFontToHandle(L"???C???I", 20, 2, DX_FONTTYPE_ANTIALIASING_4X4);
 
     sndDong = LoadSoundMem(L"Theme\\default\\sounds\\dong.wav");
     sndKa = LoadSoundMem(L"Theme\\default\\sounds\\ka.wav");
 
-    // prev状態初期化（生成直後の誤検知防止）
+    // prev?????????i???????????m?h?~?j
     prevD = CheckHitKey(KEY_INPUT_D) != 0;
     prevK = CheckHitKey(KEY_INPUT_K) != 0;
     prevJ = CheckHitKey(KEY_INPUT_J) != 0;
     prevF = CheckHitKey(KEY_INPUT_F) != 0;
     prevEsc = CheckHitKey(KEY_INPUT_ESCAPE) != 0;
 
-    // TJAを軽量パースして収録難易度を取得
-    // TJAParser::ReadTitle と同様に COURSE: 行だけ拾う
+    // TJA???y??p?[?X??????^???x?????
+    // TJAParser::ReadTitle ????l?? COURSE: ?s?????E??
     {
         std::ifstream f(song.tjaPath, std::ios::binary);
         std::string line;
         int currentDiff = -1;
         std::set<int> found;
+        std::map<int, int> levelByDiff;
         while (std::getline(f, line)) {
             if (!line.empty() && line.back() == '\r') line.pop_back();
             if (line.rfind("COURSE:", 0) == 0) {
@@ -74,17 +76,29 @@ DiffSelect::DiffSelect(const SongEntry& song) : songEntry(song) {
                 else if (val == "hard" || val == "2") currentDiff = 2;
                 else if (val == "oni" || val == "3") currentDiff = 3;
                 else if (val == "edit" || val == "4") currentDiff = 4;
+                else if (val == "tower" || val == "5") currentDiff = 5;
+                else if (val == "dan" || val == "6") currentDiff = 6;
                 if (currentDiff >= 0) found.insert(currentDiff);
+            }
+            else if (currentDiff >= 0 && line.rfind("LEVEL:", 0) == 0) {
+                levelByDiff[currentDiff] = 0;
+                std::string val = line.substr(6);
+                val.erase(0, val.find_first_not_of(" \t"));
+                if (!val.empty()) {
+                    try { levelByDiff[currentDiff] = static_cast<int>(std::stof(val)); }
+                    catch (...) {}
+                }
             }
         }
         for (int id : found) {
             DiffEntry de;
             de.diffId = id;
             de.label = DiffName(id);
-            de.level = 0; // LEVEL: は今回省略
+            auto lit = levelByDiff.find(id);
+            de.level = (lit != levelByDiff.end()) ? lit->second : 0;
             diffs.push_back(de);
         }
-        // diffId 順にソート
+        // diffId ????\?[?g
         std::sort(diffs.begin(), diffs.end(),
             [](const DiffEntry& a, const DiffEntry& b) { return a.diffId < b.diffId; });
     }
@@ -98,7 +112,7 @@ DiffSelect::~DiffSelect() {
     if (sndKa != -1) DeleteSoundMem(sndKa);
 }
 
-// ─── Update ──────────────────────────────────────────────────────
+// ?????? Update ????????????????????????????????????????????????????????????????????????????????????????????????????????????
 bool DiffSelect::Update() {
     bool curD = CheckHitKey(KEY_INPUT_D) != 0;
     bool curK = CheckHitKey(KEY_INPUT_K) != 0;
@@ -106,18 +120,18 @@ bool DiffSelect::Update() {
     bool curF = CheckHitKey(KEY_INPUT_F) != 0;
     bool curEsc = CheckHitKey(KEY_INPUT_ESCAPE) != 0;
 
-    // D → 右へ（次の難易度）
+    // D ?? ?E??i??????x?j
     if (curD && !prevD) {
         selectedIndex = (selectedIndex + 1) % (int)diffs.size();
         if (sndKa != -1) PlaySoundMem(sndKa, DX_PLAYTYPE_BACK);
     }
-    // K → 左へ（前の難易度）
+    // K ?? ????i?O????x?j
     if (curK && !prevK) {
         selectedIndex = (selectedIndex - 1 + (int)diffs.size()) % (int)diffs.size();
         if (sndKa != -1) PlaySoundMem(sndKa, DX_PLAYTYPE_BACK);
     }
 
-    // J/F → 決定
+    // J/F ?? ????
     if ((curJ && !prevJ) || (curF && !prevF)) {
         if (sndDong != -1) PlaySoundMem(sndDong, DX_PLAYTYPE_BACK);
         decided = true;
@@ -125,7 +139,7 @@ bool DiffSelect::Update() {
         return true;
     }
 
-    // ESC → 曲選択へ戻る
+    // ESC ?? ??I??????
     if (curEsc && !prevEsc) {
         if (sndKa != -1) PlaySoundMem(sndKa, DX_PLAYTYPE_BACK);
         prevD = curD; prevK = curK; prevJ = curJ; prevF = curF; prevEsc = curEsc;
@@ -136,15 +150,15 @@ bool DiffSelect::Update() {
     return false;
 }
 
-// ─── Draw ────────────────────────────────────────────────────────
+// ?????? Draw ????????????????????????????????????????????????????????????????????????????????????????????????????????????????
 void DiffSelect::Draw() {
     const int SW = 1280, SH = 720;
 
-    // 背景
+    // ?w?i
     DrawBox(0, 0, SW, SH / 2, GetColor(245, 175, 175), TRUE);
     DrawBox(0, SH / 2, SW, SH, GetColor(225, 150, 150), TRUE);
 
-    // 曲タイトル
+    // ??^?C?g??
     int tw = GetDrawStringWidthToHandle(songEntry.title.c_str(),
         (int)songEntry.title.size(), fontTitle);
     DrawStringToHandle(SW / 2 - tw / 2 + 2, 52, songEntry.title.c_str(),
@@ -152,21 +166,21 @@ void DiffSelect::Draw() {
     DrawStringToHandle(SW / 2 - tw / 2, 50, songEntry.title.c_str(),
         GetColor(255, 255, 255), fontTitle);
 
-    // 仕切り線
+    // ?d????
     DrawBox(0, 108, SW, 110, GetColor(255, 200, 200), TRUE);
 
     if (diffs.empty()) {
-        const wchar_t* msg = L"この曲に収録難易度がありません";
+        const wchar_t* msg = L"????????^???x??????????";
         int mw = GetDrawStringWidthToHandle(msg, (int)wcslen(msg), fontButton);
         DrawStringToHandle(SW / 2 - mw / 2, SH / 2 - 20, msg,
             GetColor(255, 255, 255), fontButton);
         return;
     }
 
-    // ── 難易度ボタン（横並び） ─────────────────────────────────
+    // ???? ???x?{?^???i???????j ??????????????????????????????????????????????????????????????????
     const int BTN_W = 200;
     const int BTN_H = 200;
-    const int BTN_SEL_H = 230;  // 選択中は少し大きく
+    const int BTN_SEL_H = 230;  // ?I??????????
     const int GAP = 20;
     const int RADIUS = 14;
 
@@ -185,22 +199,22 @@ void DiffSelect::Draw() {
         unsigned int col = DiffColor(diffs[i].diffId);
         unsigned int colDark = DiffColorDark(diffs[i].diffId);
 
-        // 影
+        // ?e
         if (sel) {
             SetDrawBlendMode(DX_BLENDMODE_ALPHA, 90);
             DrawBox(x1 + 6, y1 + 8, x2 + 6, y2 + 8, GetColor(0, 0, 0), TRUE);
             SetDrawBlendMode(DX_BLENDMODE_NOBLEND, 0);
         }
 
-        // ボタン本体（上部: 明るい色、下部: 暗い色でグラデーション風）
+        // ?{?^???{??i??: ?????F?A????: ????F??O???f?[?V???????j
         int mid = y1 + bh * 2 / 3;
         DrawBox(x1, y1, x2, mid, col, TRUE);
         DrawBox(x1, mid, x2, y2, colDark, TRUE);
 
-        // 角丸の代わりに四隅を背景色で塗りつぶし
-        // （DxLib に角丸矩形がないため、シンプルな四角で統一）
+        // ?p???????l????w?i?F??h?????
+        // ?iDxLib ??p???`?????????A?V???v????l?p?????j
 
-        // 選択中: 白枠
+        // ?I??: ???g
         if (sel) {
             DrawBox(x1, y1, x2, y1 + 4, GetColor(255, 255, 255), TRUE);
             DrawBox(x1, y2 - 4, x2, y2, GetColor(255, 255, 255), TRUE);
@@ -208,16 +222,25 @@ void DiffSelect::Draw() {
             DrawBox(x2 - 4, y1, x2, y2, GetColor(255, 255, 255), TRUE);
         }
 
-        // 難易度名
+        // ???x??
         const wchar_t* name = diffs[i].label.c_str();
         int nw = GetDrawStringWidthToHandle(name, (int)wcslen(name), fontButton);
         int nx = x1 + (BTN_W - nw) / 2;
         int ny = y1 + bh / 2 - 18;
-        // 影テキスト
+        // ?e?e?L?X?g
         DrawStringToHandle(nx + 1, ny + 1, name, GetColor(0, 0, 0), fontButton);
         DrawStringToHandle(nx, ny, name, GetColor(255, 255, 255), fontButton);
 
-        // ▼ 選択中インジケータ（下矢印）
+        if (diffs[i].level > 0) {
+            std::wstring stars;
+            for (int s = 0; s < diffs[i].level && s < 10; s++) stars += L"\u2605";
+            int sw = GetDrawStringWidthToHandle(stars.c_str(),
+                static_cast<int>(stars.size()), fontLevel);
+            DrawStringToHandle(x1 + (BTN_W - sw) / 2, y1 + bh / 2 + 16,
+                stars.c_str(), GetColor(255, 240, 120), fontLevel);
+        }
+
+        // ?? ?I??C???W?P?[?^?i?????j
         if (sel) {
             int ax = x1 + BTN_W / 2;
             int ay = y2 + 18;
@@ -226,12 +249,12 @@ void DiffSelect::Draw() {
         }
     }
 
-    // ── 操作ヒント ────────────────────────────────────────────────
+    // ???? ????q???g ????????????????????????????????????????????????????????????????????????????????????????????????
     SetDrawBlendMode(DX_BLENDMODE_ALPHA, 200);
     DrawBox(0, SH - 44, SW, SH, GetColor(20, 20, 20), TRUE);
     SetDrawBlendMode(DX_BLENDMODE_NOBLEND, 0);
 
-    const wchar_t* hint = L"D / K : 左右移動　　J / F : 決定　　ESC : 曲選択へ戻る";
+    const wchar_t* hint = L"D / K : ???E????@?@J / F : ????@?@ESC : ??I??????";
     int hw = GetDrawStringWidthToHandle(hint, (int)wcslen(hint), fontLevel);
     DrawStringToHandle(SW / 2 - hw / 2, SH - 34, hint, GetColor(180, 180, 180), fontLevel);
 }

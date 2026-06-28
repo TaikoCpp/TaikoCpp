@@ -18,8 +18,9 @@ public:
     bool Update() override;
     void Draw() override;
 
-    // 決定された難易度ID（-1 = まだ未決定）
+    // 決定された難易度ID（-1 = キャンセル / 未決定）
     int GetSelectedDiffId() const { return decided ? diffs[selectedIndex].diffId : -1; }
+    const SongEntry& GetSongEntry() const { return songEntry; }
 
 private:
     SongEntry    songEntry;
