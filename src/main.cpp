@@ -1,4 +1,4 @@
-#include <DxLib.h>
+﻿#include <DxLib.h>
 #include <memory>
 #include <locale>
 #include <tchar.h>
@@ -10,7 +10,7 @@
 #include "TJAParser.h"
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
-    std::locale::global(std::locale(""));  // ���{��t�@�C�����Ή�
+    std::locale::global(std::locale(""));
 
     ChangeWindowMode(TRUE);
     SetWaitVSyncFlag(TRUE);
@@ -18,6 +18,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     SetWindowSizeChangeEnableFlag(TRUE, FALSE);
     SetWindowSize(1280, 720);
     SetMainWindowText(_T("TaikoCpp"));
+
+    // WASAPI を使用する（DxLib_Init より前に設定する必要がある）
+    // 第1引数TRUE=WASAPI有効, 第2引数FALSE=共有モード / TRUE=排他モード
+    SetEnableWASAPIFlag(TRUE, FALSE);
 
     if (DxLib_Init() == -1) return -1;
     SetDrawScreen(DX_SCREEN_BACK);
@@ -27,9 +31,16 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     int frameCount = 0;
     int lastTime = GetNowCount();
     int fps = 0;
+    bool showFps = true;
+    bool prevF2 = false;
 
     while (ProcessMessage() == 0) {
         ClearDrawScreen();
+
+        // F2 で FPS 表示トグル
+        bool curF2 = CheckHitKey(KEY_INPUT_F2) != 0;
+        if (curF2 && !prevF2) showFps = !showFps;
+        prevF2 = curF2;
 
         if (currentScene->Update()) {
             TitleScreen* title = dynamic_cast<TitleScreen*>(currentScene.get());
@@ -81,7 +92,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
             frameCount = 0;
             lastTime = currentTime;
         }
-        DrawFormatString(10, 10, GetColor(255, 255, 0), _T("FPS: %d"), fps);
+        if (showFps)
+            DrawFormatString(10, 10, GetColor(255, 255, 0), _T("FPS: %d"), fps);
 
         ScreenFlip();
     }

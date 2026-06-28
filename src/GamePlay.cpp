@@ -15,6 +15,16 @@ GamePlay::GamePlay(const SongEntry& song, int diffId, SongInfo&& chartData)
         sndKa[i] = LoadSoundMem(L"Theme\\default\\sounds\\ka.wav");
     }
 
+    // Load all images from the 05_Game skin folder
+    backgroundImage = LoadGraph(L"Theme\\default\\img\\05_Game\\1P_Background.png");
+    baseImage = LoadGraph(L"Theme\\default\\img\\05_Game\\Base.png");
+    courseSymbolImage = LoadGraph(L"Theme\\default\\img\\05_Game\\coursesymbol_oni.png");
+    mainBackgroundImage = LoadGraph(L"Theme\\default\\img\\05_Game\\Background_Main.png");
+    frameImage = LoadGraph(L"Theme\\default\\img\\05_Game\\1P_Frame.png");
+
+    // Notes スプライトシート
+    notesImage = LoadGraph(L"Theme\\default\\img\\05_Game\\Notes.png");
+
     for (Note* note : chart.master_notes.play_notes) {
         if (!IsHittable(*note)) continue;
         notes.push_back({ note, false });
@@ -53,6 +63,12 @@ GamePlay::~GamePlay() {
     }
     if (fontUI != -1) DeleteFontToHandle(fontUI);
     if (fontScore != -1) DeleteFontToHandle(fontScore);
+    if (backgroundImage != -1) DeleteGraph(backgroundImage);
+    if (baseImage != -1) DeleteGraph(baseImage);
+    if (courseSymbolImage != -1) DeleteGraph(courseSymbolImage);
+    if (mainBackgroundImage != -1) DeleteGraph(mainBackgroundImage);
+    if (frameImage != -1) DeleteGraph(frameImage);
+    if (notesImage != -1) DeleteGraph(notesImage);
 }
 
 std::wstring GamePlay::PathToWide(const fs::path& p) const {
@@ -127,13 +143,13 @@ void GamePlay::JudgeNote(ActiveNote& active, bool don, bool ka) {
         if ((expectDon && don) || (expectKa && ka)) {
             active.judged = true;
             RegisterJudge(JudgeResult::Ryo, type);
-            if (don && sndDon[sndDonIdx] != -1) {
-                PlaySoundMem(sndDon[sndDonIdx], DX_PLAYTYPE_BACK);
-                sndDonIdx = (sndDonIdx + 1) % SND_BUF;
+            if (don) {
+                int slot = FindFreeSoundSlot(sndDon, sndDonIdx);
+                if (sndDon[slot] != -1) { StopSoundMem(sndDon[slot]); PlaySoundMem(sndDon[slot], DX_PLAYTYPE_BACK); }
             }
-            if (ka && sndKa[sndKaIdx] != -1) {
-                PlaySoundMem(sndKa[sndKaIdx], DX_PLAYTYPE_BACK);
-                sndKaIdx = (sndKaIdx + 1) % SND_BUF;
+            if (ka) {
+                int slot = FindFreeSoundSlot(sndKa, sndKaIdx);
+                if (sndKa[slot] != -1) { StopSoundMem(sndKa[slot]); PlaySoundMem(sndKa[slot], DX_PLAYTYPE_BACK); }
             }
         }
     }
@@ -141,13 +157,13 @@ void GamePlay::JudgeNote(ActiveNote& active, bool don, bool ka) {
         if ((expectDon && don) || (expectKa && ka)) {
             active.judged = true;
             RegisterJudge(JudgeResult::Ka, type);
-            if (don && sndDon[sndDonIdx] != -1) {
-                PlaySoundMem(sndDon[sndDonIdx], DX_PLAYTYPE_BACK);
-                sndDonIdx = (sndDonIdx + 1) % SND_BUF;
+            if (don) {
+                int slot = FindFreeSoundSlot(sndDon, sndDonIdx);
+                if (sndDon[slot] != -1) { StopSoundMem(sndDon[slot]); PlaySoundMem(sndDon[slot], DX_PLAYTYPE_BACK); }
             }
-            if (ka && sndKa[sndKaIdx] != -1) {
-                PlaySoundMem(sndKa[sndKaIdx], DX_PLAYTYPE_BACK);
-                sndKaIdx = (sndKaIdx + 1) % SND_BUF;
+            if (ka) {
+                int slot = FindFreeSoundSlot(sndKa, sndKaIdx);
+                if (sndKa[slot] != -1) { StopSoundMem(sndKa[slot]); PlaySoundMem(sndKa[slot], DX_PLAYTYPE_BACK); }
             }
         }
     }
@@ -156,12 +172,27 @@ void GamePlay::JudgeNote(ActiveNote& active, bool don, bool ka) {
 void GamePlay::ProcessInput(bool donPressed, bool kaPressed) {
     float chartMs = GetChartMs();
 
+    bool noteHit = false;
     for (auto& active : notes) {
         if (active.judged) continue;
         float delta = std::fabs(chartMs - active.note->hit_ms);
         if (delta > JUDGE_KA_MS) continue;
         if (donPressed || kaPressed) {
             JudgeNote(active, donPressed, kaPressed);
+            noteHit = true;
+            break;
+        }
+    }
+
+    // ノーツにヒットしなかった場合でも打鍵音を再生する
+    if (!noteHit) {
+        if (donPressed) {
+            int slot = FindFreeSoundSlot(sndDon, sndDonIdx);
+            if (sndDon[slot] != -1) { StopSoundMem(sndDon[slot]); PlaySoundMem(sndDon[slot], DX_PLAYTYPE_BACK); }
+        }
+        if (kaPressed) {
+            int slot = FindFreeSoundSlot(sndKa, sndKaIdx);
+            if (sndKa[slot] != -1) { StopSoundMem(sndKa[slot]); PlaySoundMem(sndKa[slot], DX_PLAYTYPE_BACK); }
         }
     }
 }
@@ -170,6 +201,11 @@ bool GamePlay::Update() {
     bool curDon = (CheckHitKey(KEY_INPUT_J) || CheckHitKey(KEY_INPUT_F)) != 0;
     bool curKa = (CheckHitKey(KEY_INPUT_D) || CheckHitKey(KEY_INPUT_K)) != 0;
     bool curEsc = CheckHitKey(KEY_INPUT_ESCAPE) != 0;
+    bool curF2 = CheckHitKey(KEY_INPUT_F2) != 0;
+
+    // F2 で FPS 表示トグル
+    if (curF2 && !prevF2) showFps = !showFps;
+    prevF2 = curF2;
 
     if (curEsc && !prevEsc) {
         prevDon = curDon; prevKa = curKa; prevEsc = curEsc;
@@ -206,42 +242,232 @@ bool GamePlay::Update() {
     return false;
 }
 
+void GamePlay::DrawNoteSprite(int col, int row, int cx, int cy, int dst_h, bool trans) const {
+    if (notesImage == -1) return;
+    int src_x = NS_SRC_X[col];
+    int src_w = NS_SRC_W[col];
+    // dst_w は元画像の縦横比を保って計算
+    int dst_w = static_cast<int>(src_w * (static_cast<float>(dst_h) / NS_SRC_H));
+    int src_y = row * NS_ROW_H;
+    int dx1 = cx - dst_w / 2;
+    int dy1 = cy - dst_h / 2;
+    int dx2 = dx1 + dst_w;
+    int dy2 = dy1 + dst_h;
+    DrawRectExtendGraph(dx1, dy1, dx2, dy2,
+        src_x, src_y, src_w, NS_SRC_H, notesImage, trans ? TRUE : FALSE);
+}
+
 void GamePlay::DrawNote(const Note& note, float x) const {
-    const int laneY = 400;
-    const int radius = (note.type == NoteType::DON_L || note.type == NoteType::KAT_L ||
-        note.type == NoteType::ROLL_HEAD_L) ? 28 : 20;
+    const int cy = LANE_CY;
+    const int cx = static_cast<int>(x);
 
-    bool isDon = note.type == NoteType::DON || note.type == NoteType::DON_L ||
-        note.type == NoteType::ROLL_HEAD || note.type == NoteType::ROLL_HEAD_L ||
-        note.type == NoteType::BALLOON_HEAD || note.type == NoteType::KUSUDAMA;
-    bool isRoll = note.type == NoteType::ROLL_HEAD || note.type == NoteType::ROLL_HEAD_L;
-    bool isBalloon = note.type == NoteType::BALLOON_HEAD || note.type == NoteType::KUSUDAMA;
-
-    unsigned int color = isDon ? GetColor(220, 50, 50) : GetColor(80, 130, 220);
-
-    if (isRoll) {
-        DrawBox(static_cast<int>(x) - 8, laneY - 12, static_cast<int>(x) + 80, laneY + 12,
-            color, TRUE);
+    switch (note.type) {
+    case NoteType::DON:
+        // col=1(小ドン), row=0, 小サイズ
+        DrawNoteSprite(1, 0, cx, cy, NS_DST_H_S);
+        break;
+    case NoteType::KAT:
+        // col=2(小カッ)
+        DrawNoteSprite(2, 0, cx, cy, NS_DST_H_S);
+        break;
+    case NoteType::DON_L:
+        // col=3(大ドン)
+        DrawNoteSprite(3, 0, cx, cy, NS_DST_H_L);
+        break;
+    case NoteType::KAT_L:
+        // col=4(大カッ)
+        DrawNoteSprite(4, 0, cx, cy, NS_DST_H_L);
+        break;
+    case NoteType::ROLL_HEAD:
+    case NoteType::ROLL_HEAD_L: {
+        // ロール: body を head の右側に敷き詰め、最後に head を最前面に描く
+        bool isLarge = (note.type == NoteType::ROLL_HEAD_L);
+        int bodyCol = isLarge ? 8 : 6;   // ロールbody大/小
+        int headCol = isLarge ? 3 : 1;   // 大ドン/小ドン顔
+        int dstH = isLarge ? NS_DST_H_L : NS_DST_H_S;
+        // body の描画幅を計算 (縦横比を保つ)
+        int bodySrcW = NS_SRC_W[bodyCol];
+        int bodyDstW = static_cast<int>(bodySrcW * (static_cast<float>(dstH) / NS_SRC_H));
+        if (bodyDstW <= 0) bodyDstW = 1;
+        // ロール終端 x: unload_ms (TAIL の時刻) をスクリーン座標に変換
+        float chartMs = GetChartMs();
+        int rollEndX;
+        if (note.unload_ms > note.hit_ms) {
+            float endScreenX = static_cast<float>(JUDGE_X) +
+                (note.unload_ms - chartMs) * SCROLL_PX_PER_MS * note.scroll_x;
+            rollEndX = static_cast<int>(endScreenX);
+        }
+        else {
+            rollEndX = cx + 120;
+        }
+        // body を head(cx) から rollEndX へ左→右に並べる
+        for (int bx = cx; bx < rollEndX; bx += bodyDstW) {
+            int bx1 = bx;
+            int bx2 = bx + bodyDstW;
+            DrawRectExtendGraph(bx1, cy - dstH / 2, bx2, cy + dstH / 2,
+                NS_SRC_X[bodyCol], 0, bodySrcW, NS_SRC_H, notesImage, TRUE);
+        }
+        // head を最前面に
+        DrawNoteSprite(headCol, 0, cx, cy, dstH);
+        break;
     }
-    else if (isBalloon) {
-        DrawCircle(static_cast<int>(x), laneY, radius + 6, GetColor(255, 200, 80), TRUE);
-        DrawCircle(static_cast<int>(x), laneY, radius, color, TRUE);
+    case NoteType::BALLOON_HEAD:
+        // col=5(バルーン小黄色顔)
+        DrawNoteSprite(5, 0, cx, cy, NS_DST_H_S);
+        break;
+    case NoteType::KUSUDAMA:
+        // col=9(kusudama/風船)
+        DrawNoteSprite(9, 0, cx, cy, NS_DST_H_L);
+        break;
+    default:
+        break;
     }
-    else {
-        DrawCircle(static_cast<int>(x), laneY, radius, color, TRUE);
-        DrawCircle(static_cast<int>(x), laneY, radius, GetColor(255, 255, 255), FALSE);
+}
+
+// 再生が終わっているスロットを優先して返す。全スロット再生中なら最も古いものを返す。
+int GamePlay::FindFreeSoundSlot(const int* sndBuf, int& idx) const {
+    for (int i = 0; i < SND_BUF; i++) {
+        int slot = (idx + i) % SND_BUF;
+        if (sndBuf[slot] != -1 && !CheckSoundMem(sndBuf[slot])) {
+            idx = (slot + 1) % SND_BUF;
+            return slot;
+        }
+    }
+    // 全スロット再生中 → ラウンドロビンで現在位置を使う（最終手段）
+    int slot = idx;
+    idx = (idx + 1) % SND_BUF;
+    return slot;
+}
+
+void GamePlay::DrawBarLines() const {
+    // chart.master_notes.bars には小節線ノートが入っている
+    // 小節線は半透明の白い縦線としてレーン上に描画する
+    float chartMs = GetChartMs();
+    const int SW = 1280;
+    const unsigned int barColor = GetColor(200, 200, 200);
+
+    for (const Note* bar : chart.master_notes.bars) {
+        if (!bar) continue;
+        float x = static_cast<float>(JUDGE_X) +
+            (bar->hit_ms - chartMs) * SCROLL_PX_PER_MS * bar->scroll_x;
+        if (x < 0 || x > SW) continue;
+        int ix = static_cast<int>(x);
+        // レーン全高に渡る縦線 (幅2px)
+        DrawBox(ix - 1, LANE_TOP, ix + 1, LANE_BOTTOM, barColor, TRUE);
     }
 }
 
 void GamePlay::Draw() {
+    // -----------------------------------------------------------------------
+    // 座標変換の説明:
+    //   .aup2 の座標系: 1920x1080、中心原点 (960, 540)
+    //   ゲーム画面:    1280x720、左上原点
+    //   スケール係数:  sx = 1280/1920 = 2/3、sy = 720/1080 = 2/3
+    //
+    //   aup2 の中心座標 → 1920x1080 上のスクリーン座標:
+    //     screen_cx = 960 + aup_x
+    //     screen_cy = 540 + aup_y
+    //
+    //   画像のスケール後サイズ:
+    //     scaled_w = img_w * scale
+    //     scaled_h = img_h * scale
+    //
+    //   1920x1080 上の左上:
+    //     tl_x = screen_cx - scaled_w / 2
+    //     tl_y = screen_cy - scaled_h / 2
+    //
+    //   1280x720 への変換:
+    //     draw_x1 = tl_x * (2/3)
+    //     draw_y1 = tl_y * (2/3)
+    //     draw_x2 = (tl_x + scaled_w) * (2/3)
+    //     draw_y2 = (tl_y + scaled_h) * (2/3)
+    // -----------------------------------------------------------------------
+
     const int SW = 1280, SH = 720;
 
-    DrawBox(0, 0, SW, SH, GetColor(30, 25, 40), TRUE);
-    DrawBox(0, 340, SW, 460, GetColor(50, 45, 60), TRUE);
+    // 画質向上: バイリニアフィルタを使用
+    SetDrawMode(DX_DRAWMODE_BILINEAR);
 
-    DrawLine(JUDGE_X, 320, JUDGE_X, 480, GetColor(255, 255, 255), FALSE);
-    DrawCircle(JUDGE_X, 400, 36, GetColor(255, 255, 255), FALSE);
+    // ------------------------------------------------------------------
+    // Layer 0: グレー背景 (図形・背景 #606060)
+    // ------------------------------------------------------------------
+    DrawBox(0, 0, SW, SH, GetColor(0x60, 0x60, 0x60), TRUE);
 
+    // ------------------------------------------------------------------
+    // Layer 1: 1P_Background.png  (透過なし)
+    //   aup2: X=-710, Y=-135, scale=150%  /  image: 333x176
+    //   1920x1080 center: (250, 405), scaled: 499.5x264
+    //   TL: (0.25, 273) → 1280x720: (0, 182)
+    //   元画像が scale=150% で 333*1.5=499.5 ≒ 500px 幅になるが、
+    //   1280x720 への縮小後は 333px 幅に戻り等倍 → DrawGraph で劣化なし
+    // ------------------------------------------------------------------
+    if (backgroundImage != -1) {
+        DrawGraph(0, 182, backgroundImage, FALSE);  // 透過なし(FALSE)、等倍描画
+    }
+
+    // ------------------------------------------------------------------
+    // Layer 2: Base.png  (太鼓の台座)
+    //   aup2: X=-595.41, Y=-129.23, scale=200%  /  image: 154x171
+    //   1280x720: (140, 160) → (346, 388)  (206x228 に拡大)
+    // ------------------------------------------------------------------
+    if (baseImage != -1) {
+        DrawExtendGraph(140, 160, 346, 388, baseImage, TRUE);
+    }
+
+    // ------------------------------------------------------------------
+    // Layer 3: coursesymbol_oni.png
+    //   aup2: X=-612, Y=-173, scale=150%  /  image: 2252x720
+    //   1920x1080 center: (348, 367), scaled: 3378x1080
+    //   TL(1920x1080): (-1341, -173) → 1280x720: (-894, -115)
+    //   BR(1920x1080): (2037, 907)   → 1280x720: (1358, 605)
+    //   画面に見える範囲: (0,0)→(1280,605)
+    //   元画像上の対応クロップ:
+    //     描画全体サイズ = 2252x720 (縮小率がちょうど 2/3*1.5=1.0 倍で等倍)
+    //     src_x = 894, src_y = 115, width = 1280, height = 605
+    //   → DrawRectGraph で等倍コピー (最高画質)
+    // ------------------------------------------------------------------
+    if (courseSymbolImage != -1) {
+        DrawRectGraph(0, 0,
+            894, 115, 1280, 605,
+            courseSymbolImage, TRUE);
+    }
+
+    // ------------------------------------------------------------------
+    // Layer 4: Background_Main.png  (単色化=黒、画像不要)
+    //   aup2: X=480, Y=-135, scale=200%  /  image: 947x130
+    //   1280x720: (329, 183) → (1280, 357)
+    //   単色化(黒, 強さ=100%) → 黒矩形で代替
+    // ------------------------------------------------------------------
+    DrawBox(329, 183, 1280, 357, GetColor(0, 0, 0), TRUE);
+
+    // ------------------------------------------------------------------
+    // Layer 5: 1P_Frame.png  (デコレーションフレーム)
+    //   aup2: X=250, Y=-170, scale=150%  /  image: 951x224
+    //   1280x720 TL: (331, 135), scaled: 1426x336
+    //   右端が画面外 → src を (1280-331)/1.5 = 632px 分だけ切り出し
+    //   DrawRectExtendGraph でクロップ+拡大
+    // ------------------------------------------------------------------
+    if (frameImage != -1) {
+        DrawRectExtendGraph(331, 135, 1280, 359,
+            0, 0, 633, 224,
+            frameImage, TRUE);
+    }
+
+    // ------------------------------------------------------------------
+    // 判定ライン & 判定円
+    // ------------------------------------------------------------------
+    SetDrawBlendMode(DX_BLENDMODE_NOBLEND, 0);
+    DrawLine(JUDGE_X, 183, JUDGE_X, 357, GetColor(255, 255, 255), FALSE);
+    DrawCircle(JUDGE_X, 270, 36, GetColor(255, 255, 255), FALSE);
+
+    // ------------------------------------------------------------------
+    // 小節線描画 (ノーツより下のレイヤー)
+    // ------------------------------------------------------------------
+    DrawBarLines();
+
+    // ------------------------------------------------------------------
+    // ノーツ描画
+    // ------------------------------------------------------------------
     for (const auto& active : notes) {
         if (active.judged) continue;
         float x = NoteScreenX(*active.note);
@@ -249,21 +475,4 @@ void GamePlay::Draw() {
         DrawNote(*active.note, x);
     }
 
-    DrawFormatString(20, 20, GetColor(255, 255, 255), L"Score: %d", score);
-    DrawFormatString(20, 55, GetColor(255, 220, 100), L"Combo: %d", combo);
-    DrawFormatString(20, 90, GetColor(180, 180, 180),
-        L"Ryo:%d  Ka:%d  Fuka:%d", ryoCount, kaCount, fukaCount);
-
-    int tw = GetDrawStringWidthToHandle(songEntry.title.c_str(), -1, fontUI);
-    DrawStringToHandle(SW / 2 - tw / 2, 12, songEntry.title.c_str(),
-        GetColor(255, 255, 255), fontUI);
-
-    const wchar_t* diffNames[] = { L"\u304b\u3093\u305f\u3093", L"\u3075\u3064\u3046",
-        L"\u3080\u305a\u304b\u3057\u3044", L"\u304a\u306b", L"Edit" };
-    if (diffId >= 0 && diffId <= 4) {
-        DrawFormatString(SW - 160, 12, GetColor(255, 200, 200), L"%s", diffNames[diffId]);
-    }
-
-    DrawFormatString(20, SH - 40, GetColor(150, 150, 150),
-        L"J/F=Don  D/K=Ka  ESC=Quit");
 }

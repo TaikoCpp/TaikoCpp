@@ -885,16 +885,16 @@ std::wstring TJAParser::ReadTitle(const fs::path& path) {
     std::ifstream f(path, std::ios::binary);
     if (!f.is_open()) return path.stem().wstring();
 
-    // UTF-8 BOMŒŸoiEF BB BFj
+    // UTF-8 BOMï¿½ï¿½ï¿½oï¿½iEF BB BFï¿½j
     bool isUtf8 = false;
     {
         unsigned char bom[3] = {};
         f.read(reinterpret_cast<char*>(bom), 3);
         if (bom[0] == 0xEF && bom[1] == 0xBB && bom[2] == 0xBF) {
-            isUtf8 = true;  // BOM•t‚«UTF-8
+            isUtf8 = true;  // BOMï¿½tï¿½ï¿½UTF-8
         }
         else {
-            f.seekg(0);  // BOM‚È‚µ ¨ æ“ª‚É–ß‚·
+            f.seekg(0);  // BOMï¿½È‚ï¿½ ï¿½ï¿½ ï¿½æ“ªï¿½É–ß‚ï¿½
         }
     }
 
@@ -902,7 +902,7 @@ std::wstring TJAParser::ReadTitle(const fs::path& path) {
     while (std::getline(f, line)) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
 
-        // BOM‚È‚µUTF-8‚ÌŠÈˆÕŒŸoi0x80ˆÈã‚ÌƒoƒCƒg‚ª‚ ‚ê‚ÎUTF-8‚Æ‰¼’èj
+        // BOMï¿½È‚ï¿½UTF-8ï¿½ÌŠÈˆÕŒï¿½ï¿½oï¿½i0x80ï¿½Èï¿½Ìƒoï¿½Cï¿½gï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½UTF-8ï¿½Æ‰ï¿½ï¿½ï¿½j
         if (!isUtf8) {
             for (unsigned char c : line) {
                 if (c >= 0x80) { isUtf8 = true; break; }
