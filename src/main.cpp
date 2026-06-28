@@ -1,12 +1,17 @@
 #include <DxLib.h>
 #include <memory>
+#include <locale>
 #include <tchar.h>
 #include "IScene.h"
 #include "TitleScreen.h"
 #include "SongSelect.h"
 #include "DiffSelect.h"
+#include "GamePlay.h"
+#include "TJAParser.h"
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
+    std::locale::global(std::locale(""));  // ���{��t�@�C�����Ή�
+
     ChangeWindowMode(TRUE);
     SetWaitVSyncFlag(TRUE);
     SetGraphMode(1280, 720, 32);
@@ -19,7 +24,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
     std::unique_ptr<IScene> currentScene = std::make_unique<TitleScreen>();
 
-    // FPS計算用
     int frameCount = 0;
     int lastTime = GetNowCount();
     int fps = 0;
@@ -28,40 +32,48 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         ClearDrawScreen();
 
         if (currentScene->Update()) {
-            // ── TitleScreen → SongSelect
-            if (auto* title = dynamic_cast<TitleScreen*>(currentScene.get())) {
+            TitleScreen* title = dynamic_cast<TitleScreen*>(currentScene.get());
+            if (title) {
                 currentScene = std::make_unique<SongSelect>();
             }
-            // ── SongSelect → DiffSelect（曲決定） or TitleScreen（ESC）
-            else if (auto* ss = dynamic_cast<SongSelect*>(currentScene.get())) {
-                const SongEntry* selected = ss->GetSelectedSong();
-                if (selected) {
-                    currentScene = std::make_unique<DiffSelect>(*selected);
+            else {
+                SongSelect* ss = dynamic_cast<SongSelect*>(currentScene.get());
+                if (ss) {
+                    const SongEntry* selected = ss->GetSelectedSong();
+                    if (selected) {
+                        currentScene = std::make_unique<DiffSelect>(*selected);
+                    }
+                    else {
+                        currentScene = std::make_unique<TitleScreen>();
+                    }
                 }
                 else {
-                    // ESC → タイトルへ
-                    currentScene = std::make_unique<TitleScreen>();
-                }
-            }
-            // ── DiffSelect → SongSelect（ESC or 決定後、将来はゲームプレイへ）
-            else if (auto* ds = dynamic_cast<DiffSelect*>(currentScene.get())) {
-                int diffId = ds->GetSelectedDiffId();
-                if (diffId >= 0) {
-                    // TODO: GamePlay シーンへ遷移
-                    // currentScene = std::make_unique<GamePlay>(song, diffId);
-                    // 暫定: SongSelect に戻る
-                    currentScene = std::make_unique<SongSelect>();
-                }
-                else {
-                    // ESC → SongSelect へ
-                    currentScene = std::make_unique<SongSelect>();
+                    DiffSelect* ds = dynamic_cast<DiffSelect*>(currentScene.get());
+                    if (ds) {
+                        int diffId = ds->GetSelectedDiffId();
+                        if (diffId >= 0) {
+                            const SongEntry& song = ds->GetSongEntry();
+                            TJAParser parser(song.tjaPath);
+                            SongInfo chart = parser.parse(diffId);
+                            currentScene = std::make_unique<GamePlay>(
+                                song, diffId, std::move(chart));
+                        }
+                        else {
+                            currentScene = std::make_unique<SongSelect>();
+                        }
+                    }
+                    else {
+                        GamePlay* gp = dynamic_cast<GamePlay*>(currentScene.get());
+                        if (gp) {
+                            currentScene = std::make_unique<SongSelect>();
+                        }
+                    }
                 }
             }
         }
 
         currentScene->Draw();
 
-        // FPS表示
         frameCount++;
         int currentTime = GetNowCount();
         if (currentTime - lastTime >= 1000) {

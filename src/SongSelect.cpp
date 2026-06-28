@@ -1,10 +1,9 @@
-#include "SongSelect.h"
+ï»¿#include "SongSelect.h"
 #include "TJAParser.h"
 #include <algorithm>
 
 namespace fs = std::filesystem;
 
-// „Ÿ„Ÿ„Ÿ ŠpŠÛ‹éŒ`iDxLib ‚É‚Í–³‚¢‚Ì‚Å©‘Oj „Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ
 void SongSelect::DrawRoundRect(int x1, int y1, int x2, int y2, int r,
     unsigned int color, bool fill) {
     if (fill) {
@@ -27,27 +26,26 @@ void SongSelect::DrawRoundRect(int x1, int y1, int x2, int y2, int r,
     }
 }
 
-// „Ÿ„Ÿ„Ÿ ƒRƒ“ƒXƒgƒ‰ƒNƒ^ „Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ
 SongSelect::SongSelect() {
-    // ƒAƒ“ƒ`ƒGƒCƒŠƒAƒX•t‚«ƒtƒHƒ“ƒgì¬
-    // ‘æ3ˆø”: ‘¾‚³(1-9), ‘æ4ˆø”: ƒtƒHƒ“ƒgƒ^ƒCƒv
-    // DX_FONTTYPE_ANTIALIASING_4X4 = ‚•i¿AA
-    fontLarge = CreateFontToHandle(L"ƒƒCƒŠƒI", 38, 3,
+    fontLarge = CreateFontToHandle(L"\u30e1\u30a4\u30ea\u30aa", 38, 3,
         DX_FONTTYPE_ANTIALIASING_4X4);
-    fontNormal = CreateFontToHandle(L"ƒƒCƒŠƒI", 28, 2,
+    fontNormal = CreateFontToHandle(L"\u30e1\u30a4\u30ea\u30aa", 28, 2,
         DX_FONTTYPE_ANTIALIASING_4X4);
-    fontUI = CreateFontToHandle(L"ƒƒCƒŠƒI", 22, 1,
+    fontUI = CreateFontToHandle(L"\u30e1\u30a4\u30ea\u30aa", 22, 1,
         DX_FONTTYPE_ANTIALIASING_4X4);
 
-    // ƒTƒEƒ“ƒhƒ[ƒh
     sndDong = LoadSoundMem(L"Theme\\default\\sounds\\dong.wav");
     sndKa = LoadSoundMem(L"Theme\\default\\sounds\\ka.wav");
 
-    ScanSongs(fs::path("songs"));
-    if (songs.empty()) {
-        SongEntry dummy;
-        dummy.title = L"i ./songs/ ‚É TJA ƒtƒ@ƒCƒ‹‚ªŒ©‚Â‚©‚è‚Ü‚¹‚ñj";
-        songs.push_back(dummy);
+    songsRoot = fs::path("songs");
+    currentDir = songsRoot;
+    LoadDirectory(currentDir);
+
+    if (items.empty()) {
+        SelectItem dummy;
+        dummy.type = SelectItemType::Song;
+        dummy.title = L"(./songs/    TJA  t @ C       Â‚   Ü‚   )";
+        items.push_back(dummy);
     }
 }
 
@@ -59,21 +57,61 @@ SongSelect::~SongSelect() {
     if (sndDong != -1) DeleteSoundMem(sndDong);
 }
 
-void SongSelect::ScanSongs(const fs::path& songsDir) {
-    if (!fs::exists(songsDir)) return;
-    for (auto& entry : fs::recursive_directory_iterator(songsDir)) {
-        if (entry.path().extension() == ".tja") {
-            SongEntry se;
-            se.tjaPath = entry.path();
-            se.title = TJAParser::ReadTitle(entry.path());
-            songs.push_back(se);
+std::vector<fs::path> SongSelect::FindTjaFilesInDirectory(const fs::path& dir) const {
+    std::vector<fs::path> result;
+    if (!fs::exists(dir)) return result;
+
+    for (const auto& entry : fs::directory_iterator(dir)) {
+        if (entry.is_regular_file() && entry.path().extension() == L".tja") {
+            result.push_back(entry.path());
+        }
+        else if (entry.is_directory()) {
+            auto sub = FindTjaFilesInDirectory(entry.path());
+            result.insert(result.end(), sub.begin(), sub.end());
         }
     }
-    std::sort(songs.begin(), songs.end(),
-        [](const SongEntry& a, const SongEntry& b) { return a.title < b.title; });
+    return result;
 }
 
-// „Ÿ„Ÿ„Ÿ Update „Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ
+void SongSelect::LoadDirectory(const fs::path& dir) {
+    items.clear();
+    selectedIndex = 0;
+    scrollY = 0.0f;
+    targetScrollY = 0.0f;
+    currentDir = dir;
+
+    if (!fs::exists(dir)) return;
+
+    for (const auto& entry : fs::directory_iterator(dir)) {
+        if (!entry.is_directory()) continue;
+        if (!BoxDefParser::Exists(entry.path())) continue;
+
+        SelectItem item;
+        item.type = SelectItemType::Folder;
+        item.path = entry.path();
+        item.boxInfo = BoxDefParser::Parse(entry.path());
+        item.title = item.boxInfo.title;
+        items.push_back(item);
+    }
+
+    auto tjaFiles = FindTjaFilesInDirectory(dir);
+    std::sort(tjaFiles.begin(), tjaFiles.end());
+
+    for (const auto& tjaPath : tjaFiles) {
+        SelectItem item;
+        item.type = SelectItemType::Song;
+        item.path = tjaPath;
+        item.title = TJAParser::ReadTitle(tjaPath);
+        items.push_back(item);
+    }
+
+    std::stable_sort(items.begin(), items.end(),
+        [](const SelectItem& a, const SelectItem& b) {
+            if (a.type != b.type) return a.type < b.type;
+            return a.title < b.title;
+        });
+}
+
 bool SongSelect::Update() {
     bool curD = CheckHitKey(KEY_INPUT_D) != 0;
     bool curK = CheckHitKey(KEY_INPUT_K) != 0;
@@ -81,68 +119,94 @@ bool SongSelect::Update() {
     bool curF = CheckHitKey(KEY_INPUT_F) != 0;
     bool curEsc = CheckHitKey(KEY_INPUT_ESCAPE) != 0;
 
-    if (curD && !prevD) {
-        selectedIndex = (selectedIndex + 1) % (int)songs.size();
-        if (sndKa != -1) PlaySoundMem(sndKa, DX_PLAYTYPE_BACK);
-    }
-    if (curK && !prevK) {
-        selectedIndex = (selectedIndex - 1 + (int)songs.size()) % (int)songs.size();
-        if (sndKa != -1) PlaySoundMem(sndKa, DX_PLAYTYPE_BACK);
-    }
+    // items     È‚   Í      X L b v
+    if (!items.empty()) {
+        if (curD && !prevD) {
+            selectedIndex = (selectedIndex + 1) % (int)items.size();
+            if (sndKa != -1) PlaySoundMem(sndKa, DX_PLAYTYPE_BACK);
+        }
+        if (curK && !prevK) {
+            selectedIndex = (selectedIndex - 1 + (int)items.size()) % (int)items.size();
+            if (sndKa != -1) PlaySoundMem(sndKa, DX_PLAYTYPE_BACK);
+        }
 
-    // ƒXƒNƒ[ƒ‹–Ú•W
-    const float ITEM_H = 84.0f;
-    const float SCREEN_H = 720.0f;
-    targetScrollY = selectedIndex * ITEM_H - SCREEN_H / 2.0f + ITEM_H / 2.0f;
-    if (targetScrollY < 0.0f) targetScrollY = 0.0f;
-    scrollY += (targetScrollY - scrollY) * 0.15f;
+        const float ITEM_H = 84.0f;
+        const float SCREEN_H = 720.0f;
+        targetScrollY = selectedIndex * ITEM_H - SCREEN_H / 2.0f + ITEM_H / 2.0f;
+        if (targetScrollY < 0.0f) targetScrollY = 0.0f;
+        scrollY += (targetScrollY - scrollY) * 0.15f;
 
-    if ((curJ && !prevJ) || (curF && !prevF)) {
-        if (sndDong != -1) PlaySoundMem(sndDong, DX_PLAYTYPE_BACK);
-        songDecided = true;
-        prevD = curD; prevK = curK; prevJ = curJ; prevF = curF; prevEsc = curEsc;
-        return true;
+        if ((curJ && !prevJ) || (curF && !prevF)) {
+            if (sndDong != -1) PlaySoundMem(sndDong, DX_PLAYTYPE_BACK);
+
+            // selectedIndex    ÍˆÍ“  Å‚  é‚± Æ‚ O Ì‚  ß•Û 
+            if (selectedIndex >= 0 && selectedIndex < (int)items.size()) {
+                const SelectItem& item = items[selectedIndex];
+                if (item.type == SelectItemType::Folder) {
+                    LoadDirectory(item.path);
+                }
+                else if (item.path.extension() == L".tja") {
+                    selectedSong.title = item.title;
+                    selectedSong.tjaPath = item.path;
+                    songDecided = true;
+                    prevD = curD; prevK = curK; prevJ = curJ; prevF = curF; prevEsc = curEsc;
+                    return true;
+                }
+            }
+
+            prevD = curD; prevK = curK; prevJ = curJ; prevF = curF; prevEsc = curEsc;
+            return false;
+        }
     }
 
     if (curEsc && !prevEsc) {
-        if (sndDong != -1) PlaySoundMem(sndDong, DX_PLAYTYPE_BACK);
+        if (sndKa != -1) PlaySoundMem(sndKa, DX_PLAYTYPE_BACK);
+
+        if (currentDir != songsRoot && !currentDir.empty()) {
+            LoadDirectory(currentDir.parent_path());
+            prevD = curD; prevK = curK; prevJ = curJ; prevF = curF; prevEsc = curEsc;
+            return false;
+        }
+
         prevD = curD; prevK = curK; prevJ = curJ; prevF = curF; prevEsc = curEsc;
-        return true; // ƒ^ƒCƒgƒ‹‚Ö
+        return true;
     }
 
     prevD = curD; prevK = curK; prevJ = curJ; prevF = curF; prevEsc = curEsc;
     return false;
 }
 
-// „Ÿ„Ÿ„Ÿ Draw „Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ„Ÿ
 void SongSelect::Draw() {
     const int SW = 1280, SH = 720;
 
-    // „Ÿ„Ÿ ”wŒi: ƒsƒ“ƒNƒOƒ‰ƒf[ƒVƒ‡ƒ“•—iã‰º2’ij
     DrawBox(0, 0, SW, SH / 2, GetColor(245, 175, 175), TRUE);
     DrawBox(0, SH / 2, SW, SH, GetColor(225, 150, 150), TRUE);
 
-    // „Ÿ„Ÿ ƒwƒbƒ_
-    const wchar_t* header = L"‹È‚ğ‘I‚ñ‚Å‚­‚¾‚³‚¢";
-    int hw = GetDrawStringWidthToHandle(header, (int)wcslen(header), fontUI);
-    // ‰e
-    DrawStringToHandle((SW - hw) / 2 + 2, 22, header,
+    std::wstring header = L"\u66f2\u3092\u9078\u3093\u3067\u304f\u3060\u3055\u3044";
+    if (currentDir != songsRoot && BoxDefParser::Exists(currentDir)) {
+        header = BoxDefParser::GetFolderTitle(currentDir);
+    }
+    else if (currentDir != songsRoot) {
+        header = currentDir.filename().wstring();
+    }
+
+    int hw = GetDrawStringWidthToHandle(header.c_str(), (int)header.size(), fontUI);
+    DrawStringToHandle((SW - hw) / 2 + 2, 22, header.c_str(),
         GetColor(100, 50, 50), fontUI);
-    DrawStringToHandle((SW - hw) / 2, 20, header,
+    DrawStringToHandle((SW - hw) / 2, 20, header.c_str(),
         GetColor(255, 255, 255), fontUI);
 
-    // „Ÿ„Ÿ dØ‚èü
     DrawBox(0, 60, SW, 62, GetColor(255, 200, 200), TRUE);
 
-    // „Ÿ„Ÿ ‹ÈƒŠƒXƒg
     const float ITEM_H = 84.0f;
     const int   PAD_X = 180;
     const int   BOX_W = SW - PAD_X * 2;
     const int   RADIUS = 12;
 
-    int n = (int)songs.size();
+    int n = (int)items.size();
     for (int i = 0; i < n; i++) {
         bool   selected = (i == selectedIndex);
+        bool   isFolder = (items[i].type == SelectItemType::Folder);
         float  itemH = selected ? 96.0f : ITEM_H;
         float  centerY = i * ITEM_H + ITEM_H / 2.0f - scrollY + 90.0f;
         int    top = (int)(centerY - itemH / 2.0f);
@@ -150,7 +214,6 @@ void SongSelect::Draw() {
 
         if (bottom < 62 || top > SH - 50) continue;
 
-        // ‰ei‘I‘ğ’†‚¾‚¯–Ú—§‚½‚¹‚éj
         if (selected) {
             SetDrawBlendMode(DX_BLENDMODE_ALPHA, 80);
             DrawRoundRect(PAD_X + 5, top + 6, PAD_X + BOX_W + 5, bottom + 6,
@@ -158,56 +221,72 @@ void SongSelect::Draw() {
             SetDrawBlendMode(DX_BLENDMODE_NOBLEND, 0);
         }
 
-        // ƒ{ƒbƒNƒX–{‘Ì
-        unsigned int boxColor = selected
-            ? GetColor(240, 240, 240)   // ‘I‘ğ’†: ‚Ù‚Ú”’
-            : GetColor(80, 80, 90);     // ’Êí: ”Z‚¢ƒOƒŒ[
+        unsigned int boxColor;
+        if (selected) {
+            boxColor = GetColor(240, 240, 240);
+        }
+        else if (isFolder && items[i].boxInfo.hasBackColor) {
+            boxColor = GetColor(items[i].boxInfo.backColorR,
+                items[i].boxInfo.backColorG, items[i].boxInfo.backColorB);
+        }
+        else if (isFolder) {
+            boxColor = GetColor(60, 90, 140);
+        }
+        else {
+            boxColor = GetColor(80, 80, 90);
+        }
 
-        // ’Êí€–Ú‚Í”¼“§–¾‚Á‚Û‚­
         if (!selected) {
-            SetDrawBlendMode(DX_BLENDMODE_ALPHA, 200);
+            SetDrawBlendMode(DX_BLENDMODE_ALPHA, isFolder ? 230 : 200);
         }
         DrawRoundRect(PAD_X, top, PAD_X + BOX_W, bottom, RADIUS, boxColor, true);
         if (!selected) {
             SetDrawBlendMode(DX_BLENDMODE_NOBLEND, 0);
         }
 
-        // ‘I‘ğ’†: ¶’[‚ÉƒAƒNƒZƒ“ƒgƒo[
         if (selected) {
             DrawBox(PAD_X, top + RADIUS, PAD_X + 6, bottom - RADIUS,
                 GetColor(220, 80, 80), TRUE);
-            // ˜gü
             DrawRoundRect(PAD_X, top, PAD_X + BOX_W, bottom, RADIUS,
                 GetColor(200, 200, 200), false);
         }
 
-        // ƒeƒLƒXƒg
         int fh = selected ? fontLarge : fontNormal;
         int fs = selected ? 38 : 28;
-        const std::wstring& title = songs[i].title;
-        int tw = GetDrawStringWidthToHandle(title.c_str(), (int)title.size(), fh);
+
+        std::wstring displayTitle = items[i].title;
+        if (isFolder) displayTitle = L"\u25b6 " + displayTitle;
+
+        int tw = GetDrawStringWidthToHandle(displayTitle.c_str(), (int)displayTitle.size(), fh);
         int tx = PAD_X + (BOX_W - tw) / 2;
         int ty = top + (int)(itemH / 2.0f) - fs / 2;
 
+        unsigned int textColor;
         if (selected) {
-            // ‰eƒeƒLƒXƒg
-            DrawStringToHandle(tx + 1, ty + 1, title.c_str(),
-                GetColor(160, 160, 160), fh);
-            DrawStringToHandle(tx, ty, title.c_str(),
-                GetColor(40, 40, 40), fh);
+            textColor = GetColor(40, 40, 40);
+        }
+        else if (isFolder && items[i].boxInfo.hasFrontColor) {
+            textColor = GetColor(items[i].boxInfo.frontColorR,
+                items[i].boxInfo.frontColorG, items[i].boxInfo.frontColorB);
         }
         else {
-            DrawStringToHandle(tx, ty, title.c_str(),
-                GetColor(220, 220, 220), fh);
+            textColor = GetColor(220, 220, 220);
         }
+
+        if (selected) {
+            DrawStringToHandle(tx + 1, ty + 1, displayTitle.c_str(),
+                GetColor(160, 160, 160), fh);
+        }
+        DrawStringToHandle(tx, ty, displayTitle.c_str(), textColor, fh);
     }
 
-    // „Ÿ„Ÿ ‰º•”ƒqƒ“ƒgƒo[
     SetDrawBlendMode(DX_BLENDMODE_ALPHA, 200);
     DrawBox(0, SH - 44, SW, SH, GetColor(20, 20, 20), TRUE);
     SetDrawBlendMode(DX_BLENDMODE_NOBLEND, 0);
 
-    const wchar_t* hint = L"D / K : ã‰ºˆÚ“®@@J / F : Œˆ’è@@ESC : ƒ^ƒCƒgƒ‹‚Ö";
+    const wchar_t* hint = (currentDir != songsRoot)
+        ? L"D / K : \u4e0a\u4e0b\u79fb\u52d5\u3000\u3000J / F : \u6c7a\u5b9a\u3000\u3000ESC : \u623b\u308b"
+        : L"D / K : \u4e0a\u4e0b\u79fb\u52d5\u3000\u3000J / F : \u6c7a\u5b9a\u3000\u3000ESC : \u30bf\u30a4\u30c8\u30eb\u3078";
     int hintW = GetDrawStringWidthToHandle(hint, (int)wcslen(hint), fontUI);
     DrawStringToHandle((SW - hintW) / 2, SH - 34, hint,
         GetColor(180, 180, 180), fontUI);
