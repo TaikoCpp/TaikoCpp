@@ -39,6 +39,10 @@ SongSelect::SongSelect() {
     fontUI = CreateFontToHandle(L"メイリオ", 22, 1,
         DX_FONTTYPE_ANTIALIASING_4X4);
 
+    // サウンドロード
+    sndDong = LoadSoundMem(L"Theme\\default\\sounds\\dong.wav");
+    sndKa = LoadSoundMem(L"Theme\\default\\sounds\\ka.wav");
+
     ScanSongs(fs::path("songs"));
     if (songs.empty()) {
         SongEntry dummy;
@@ -51,6 +55,8 @@ SongSelect::~SongSelect() {
     if (fontLarge != -1) DeleteFontToHandle(fontLarge);
     if (fontNormal != -1) DeleteFontToHandle(fontNormal);
     if (fontUI != -1) DeleteFontToHandle(fontUI);
+    if (sndKa != -1) DeleteSoundMem(sndKa);
+    if (sndDong != -1) DeleteSoundMem(sndDong);
 }
 
 void SongSelect::ScanSongs(const fs::path& songsDir) {
@@ -75,10 +81,14 @@ bool SongSelect::Update() {
     bool curF = CheckHitKey(KEY_INPUT_F) != 0;
     bool curEsc = CheckHitKey(KEY_INPUT_ESCAPE) != 0;
 
-    if (curD && !prevD)
+    if (curD && !prevD) {
         selectedIndex = (selectedIndex + 1) % (int)songs.size();
-    if (curK && !prevK)
+        if (sndKa != -1) PlaySoundMem(sndKa, DX_PLAYTYPE_BACK);
+    }
+    if (curK && !prevK) {
         selectedIndex = (selectedIndex - 1 + (int)songs.size()) % (int)songs.size();
+        if (sndKa != -1) PlaySoundMem(sndKa, DX_PLAYTYPE_BACK);
+    }
 
     // スクロール目標
     const float ITEM_H = 84.0f;
@@ -87,7 +97,15 @@ bool SongSelect::Update() {
     if (targetScrollY < 0.0f) targetScrollY = 0.0f;
     scrollY += (targetScrollY - scrollY) * 0.15f;
 
+    if ((curJ && !prevJ) || (curF && !prevF)) {
+        if (sndDong != -1) PlaySoundMem(sndDong, DX_PLAYTYPE_BACK);
+        songDecided = true;
+        prevD = curD; prevK = curK; prevJ = curJ; prevF = curF; prevEsc = curEsc;
+        return true;
+    }
+
     if (curEsc && !prevEsc) {
+        if (sndDong != -1) PlaySoundMem(sndDong, DX_PLAYTYPE_BACK);
         prevD = curD; prevK = curK; prevJ = curJ; prevF = curF; prevEsc = curEsc;
         return true; // タイトルへ
     }
