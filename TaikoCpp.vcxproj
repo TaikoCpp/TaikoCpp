@@ -135,6 +135,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\DiffSelect.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\SongSelect.cpp" />
     <ClCompile Include="src\TitleScreen.cpp" />
@@ -142,6 +143,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="IScene.h" />
+    <ClInclude Include="src\DiffSelect.h" />
     <ClInclude Include="src\SongInfo.h" />
     <ClInclude Include="src\SongSelect.h" />
     <ClInclude Include="src\TitleScreen.h" />

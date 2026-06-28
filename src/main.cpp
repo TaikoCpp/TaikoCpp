@@ -4,9 +4,9 @@
 #include "IScene.h"
 #include "TitleScreen.h"
 #include "SongSelect.h"
+#include "DiffSelect.h"
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
-    // DxLib初期化設定
     ChangeWindowMode(TRUE);
     SetWaitVSyncFlag(TRUE);
     SetGraphMode(1280, 720, 32);
@@ -17,7 +17,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     if (DxLib_Init() == -1) return -1;
     SetDrawScreen(DX_SCREEN_BACK);
 
-    // インターフェース型のポインタで管理
     std::unique_ptr<IScene> currentScene = std::make_unique<TitleScreen>();
 
     // FPS計算用
@@ -25,24 +24,44 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     int lastTime = GetNowCount();
     int fps = 0;
 
-    // メインループ
     while (ProcessMessage() == 0) {
         ClearDrawScreen();
 
-        // シーンの更新と遷移判定
         if (currentScene->Update()) {
-            if (dynamic_cast<TitleScreen*>(currentScene.get())) {
+            // ── TitleScreen → SongSelect
+            if (auto* title = dynamic_cast<TitleScreen*>(currentScene.get())) {
                 currentScene = std::make_unique<SongSelect>();
             }
-            else {
-                currentScene = std::make_unique<TitleScreen>();
+            // ── SongSelect → DiffSelect（曲決定） or TitleScreen（ESC）
+            else if (auto* ss = dynamic_cast<SongSelect*>(currentScene.get())) {
+                const SongEntry* selected = ss->GetSelectedSong();
+                if (selected) {
+                    currentScene = std::make_unique<DiffSelect>(*selected);
+                }
+                else {
+                    // ESC → タイトルへ
+                    currentScene = std::make_unique<TitleScreen>();
+                }
+            }
+            // ── DiffSelect → SongSelect（ESC or 決定後、将来はゲームプレイへ）
+            else if (auto* ds = dynamic_cast<DiffSelect*>(currentScene.get())) {
+                int diffId = ds->GetSelectedDiffId();
+                if (diffId >= 0) {
+                    // TODO: GamePlay シーンへ遷移
+                    // currentScene = std::make_unique<GamePlay>(song, diffId);
+                    // 暫定: SongSelect に戻る
+                    currentScene = std::make_unique<SongSelect>();
+                }
+                else {
+                    // ESC → SongSelect へ
+                    currentScene = std::make_unique<SongSelect>();
+                }
             }
         }
 
-        // シーンの描画
         currentScene->Draw();
 
-        // FPS計算
+        // FPS表示
         frameCount++;
         int currentTime = GetNowCount();
         if (currentTime - lastTime >= 1000) {
