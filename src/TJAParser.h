@@ -3,33 +3,29 @@
 #include <vector>
 #include <map>
 #include <filesystem>
-#include <memory>
 #include "SongInfo.h"
 
 namespace fs = std::filesystem;
 
 class TJAParser {
 public:
-    // Difficulty mapping
     static const std::map<int, std::string> DIFFS;
 
-    // Constructor
     explicit TJAParser(const fs::path& path, int start_delay_ms = 0);
 
-    // Parse the file and populate the SongInfo
-    SongInfo parse();
+    // Parse a single difficulty chart into SongInfo
+    SongInfo parse(int diff);
 
-    // TJAファイルからTITLEだけを高速に読み取る（CP932対応）
     static std::wstring ReadTitle(const fs::path& path);
 
 private:
     fs::path file_path;
     int start_delay_ms;
-    std::vector<std::string> data; // lines after stripping comments and empty
+    float current_ms_ = 0.0f;
+    std::vector<std::string> data;
     TJAMetadata metadata;
     TJAEXData ex_data;
 
-    // Parsing state
     struct ParserState {
         float time_signature = 4.0f / 4.0f;
         float bpm = 120.0f;
@@ -65,17 +61,26 @@ private:
         Note* section_bar = nullptr;
     };
 
-    // Helper functions
+    NoteList master_notes;
+    std::vector<NoteList> branch_m;
+    std::vector<NoteList> branch_e;
+    std::vector<NoteList> branch_n;
+
     static std::string strip_comments(const std::string& line);
-    static std::string test_encoding(const fs::path& file_path);
+    static void trim(std::string& s);
+    static std::vector<int> parse_int_list(const std::string& raw);
+    static int parse_course_value(const std::string& course_str);
+
+    void load_file_lines();
     void get_metadata();
     std::vector<std::vector<std::string>> data_to_notes(int diff);
+    void notes_to_position(int diff);
     void get_moji(std::vector<Note*>& play_note_list, float ms_per_measure);
-    float get_ms_per_measure(float bpm_val, float time_sig);
-    void add_bar(ParserState& state);
+    static float get_ms_per_measure(float bpm_val, float time_sig);
+    Note* add_bar(ParserState& state);
     Note* add_note(const std::string& item, ParserState& state);
+    void dispatch_command(const std::string& part, ParserState& state);
 
-    // Command handlers
     void handle_measure(const std::string& part, ParserState& state);
     void handle_scroll(const std::string& part, ParserState& state);
     void handle_bpmchange(const std::string& part, ParserState& state);
@@ -96,13 +101,6 @@ private:
     void handle_m(ParserState& state);
     void handle_e(ParserState& state);
     void handle_n(ParserState& state);
-
-    // Branch handling
-    void set_branch_params(std::vector<Note*>* bar_list, const std::string& branch_params, Note* section_bar, ParserState& state);
-
-    // Note lists
-    NoteList master_notes;
-    std::vector<NoteList> branch_m;
-    std::vector<NoteList> branch_e;
-    std::vector<NoteList> branch_n;
+    void set_branch_params(std::vector<Note*>* bar_list, const std::string& branch_params,
+        Note* section_bar, ParserState& state);
 };
