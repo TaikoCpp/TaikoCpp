@@ -1,4 +1,5 @@
-﻿#include <DxLib.h>
+﻿#include "windows.h"
+#include <DxLib.h>
 #include <memory>
 #include <locale>
 #include <tchar.h>
@@ -8,9 +9,14 @@
 #include "DiffSelect.h"
 #include "GamePlay.h"
 #include "TJAParser.h"
+#include "Config.h"          // ← 追加
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     std::locale::global(std::locale(""));
+
+    // --- config.ini 読み込み（なければ自動生成） ---
+    Config config;
+    config.Load();
 
     ChangeWindowMode(TRUE);
     SetWaitVSyncFlag(TRUE);
@@ -18,6 +24,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     SetWindowSizeChangeEnableFlag(TRUE, FALSE);
     SetWindowSize(1280, 720);
     SetMainWindowText(_T("TaikoCpp"));
+
+    int fontAdded = AddFontResourceEx(
+        L"Theme\\default\\Fonts\\FOT-OedoKtr.otf", FR_PRIVATE, NULL);
+    OutputDebugStringW(fontAdded > 0
+        ? L"[Font] FOT-OedoKtr loaded OK\n"
+        : L"[Font] FOT-OedoKtr FAILED - check path!\n");
 
     if (DxLib_Init() == -1) return -1;
     SetDrawScreen(DX_SCREEN_BACK);
@@ -29,20 +41,22 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     int fps = 0;
     bool showFps = true;
     bool prevF2 = false;
-    bool autoPlay = false;
+    bool autoPlay = config.autoPlay;  // ← config から初期値を取得
     bool prevF1 = false;
 
     while (ProcessMessage() == 0) {
         ClearDrawScreen();
 
-        // F2 で FPS 表示トグル
         bool curF2 = CheckHitKey(KEY_INPUT_F2) != 0;
         if (curF2 && !prevF2) showFps = !showFps;
         prevF2 = curF2;
 
-        // F1 でオートプレイトグル
         bool curF1 = CheckHitKey(KEY_INPUT_F1) != 0;
-        if (curF1 && !prevF1) autoPlay = !autoPlay;
+        if (curF1 && !prevF1) {
+            autoPlay = !autoPlay;
+            config.autoPlay = autoPlay;  // ← 変更を config に反映
+            config.Save();               // ← 即座に保存
+        }
         prevF1 = curF1;
 
         if (currentScene->Update()) {
@@ -77,6 +91,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
                 }
             }
             else if (gp) {
+                currentScene.reset();
                 currentScene = std::make_unique<SongSelect>();
             }
         }
@@ -92,11 +107,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         }
         if (showFps)
             DrawFormatString(10, 10, GetColor(255, 255, 0), _T("FPS: %d"), fps);
-        DrawFormatString(10, 30, GetColor(255, 215, 0), _T("AUTO: %s [F1]"), autoPlay ? _T("ON") : _T("OFF"));
+        DrawFormatString(10, 30, GetColor(255, 215, 0), _T("AUTO: %s [F1]"),
+            autoPlay ? _T("ON") : _T("OFF"));
 
         ScreenFlip();
     }
 
+    RemoveFontResourceEx(
+        L"Theme\\default\\Fonts\\FOT-OedoKtr.otf", FR_PRIVATE, NULL);
     DxLib_End();
     return 0;
 }

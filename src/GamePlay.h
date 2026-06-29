@@ -53,6 +53,15 @@ private:
     int kaCount = 0;
     int fukaCount = 0;
 
+    // ロール（連打）管理
+    struct RollState {
+        Note* note = nullptr;
+        bool  active = false;
+        int   hitCount = 0;
+        int   lastAutoMs = 0;
+    };
+    RollState roll;
+
     static constexpr int SND_BUF = 32;
     int sndDon[SND_BUF] = { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 };
     int sndKa[SND_BUF] = { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 };
@@ -83,6 +92,11 @@ private:
     bool prevDon = false;
     bool prevKa = false;
     bool prevEsc = false;
+    bool prevF1 = false;
+
+    // リザルト表示
+    bool showResult = false;
+    int  resultStartMs = 0;
 
     static constexpr int JUDGE_X = 410;   // col0判定枠の中心x (theme.aup2より)
 

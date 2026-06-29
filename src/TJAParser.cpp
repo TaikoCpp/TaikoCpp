@@ -244,7 +244,13 @@ void TJAParser::get_metadata() {
             }
         }
     }
-
+    // ↓ 追加：COURSE:が1行もなければ oni (3) をデフォルトで登録
+    bool has_course = std::any_of(data.begin(), data.end(),
+        [](const std::string& s) { return s.rfind("COURSE:", 0) == 0; });
+    if (!has_course && metadata.course_data.find(3) == metadata.course_data.end()) {
+        metadata.course_data[3] = CourseData();
+    }
+    // ↑ 追加ここまで
     for (auto& kv : metadata.title) {
         std::string& title = kv.second;
         if (title.find("-New Audio-") != std::string::npos ||
@@ -275,6 +281,14 @@ std::vector<std::vector<std::string>> TJAParser::data_to_notes(int diff) {
     int note_end = -1;
     bool target_found = false;
     ScrollType scroll_type = ScrollType::NMSCROLL;
+
+    // ↓ 追加：COURSE:行が1つもなければ oni (3) として扱う
+    bool has_course_line = std::any_of(data.begin(), data.end(),
+        [](const std::string& s) { return s.rfind("COURSE:", 0) == 0; });
+    if (!has_course_line) {
+        target_found = (diff == 3);  // COURSE:なし → oniとみなす
+    }
+    // ↑ 追加ここまで
 
     for (size_t i = 0; i < data.size(); ++i) {
         const std::string& line = data[i];
@@ -952,23 +966,38 @@ std::wstring TJAParser::ReadTitle(const fs::path& path) {
     while (std::getline(f, line)) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
 
-        // BOM�Ȃ�UTF-8�̊ȈՌ��o�i0x80�ȏ�̃o�C�g�������UTF-8�Ɖ���j
-        if (!isUtf8) {
-            for (unsigned char c : line) {
-                if (c >= 0x80) { isUtf8 = true; break; }
-            }
-        }
+        // UTF-8 detection via BOM only; assume Shift_JIS otherwise
 
         if (line.rfind("TITLE:", 0) == 0) {
             std::string raw = line.substr(6);
             while (!raw.empty() && (raw.back() == ' ' || raw.back() == '\t')) raw.pop_back();
 #if defined(_WIN32)
-            UINT codePage = isUtf8 ? CP_UTF8 : 932;
-            int len = MultiByteToWideChar(codePage, 0, raw.c_str(), -1, nullptr, 0);
-            if (len > 1) {
-                std::wstring ws(len - 1, L'\0');
-                MultiByteToWideChar(codePage, 0, raw.c_str(), -1, ws.data(), len);
-                return ws;
+            if (isUtf8) {
+                // BOM付きUTF-8 → 確定でUTF-8変換
+                int len = MultiByteToWideChar(CP_UTF8, 0, raw.c_str(), -1, nullptr, 0);
+                if (len > 1) {
+                    std::wstring ws(len - 1, L'\0');
+                    MultiByteToWideChar(CP_UTF8, 0, raw.c_str(), -1, ws.data(), len);
+                    return ws;
+                }
+            }
+            else {
+                // BOMなし → まずUTF-8として試みる（MB_ERR_INVALID_CHARSで厳密チェック）
+                int lenUtf8 = MultiByteToWideChar(
+                    CP_UTF8, MB_ERR_INVALID_CHARS, raw.c_str(), -1, nullptr, 0);
+                if (lenUtf8 > 1) {
+                    // 有効なUTF-8 → UTF-8として変換
+                    std::wstring ws(lenUtf8 - 1, L'\0');
+                    MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, raw.c_str(), -1, ws.data(), lenUtf8);
+                    return ws;
+                }
+                // UTF-8として不正 → Shift-JIS (CP932) にフォールバック
+                int lenSjis = MultiByteToWideChar(932, 0, raw.c_str(), -1, nullptr, 0);
+                if (lenSjis > 1) {
+                    std::wstring ws(lenSjis - 1, L'\0');
+                    MultiByteToWideChar(932, 0, raw.c_str(), -1, ws.data(), lenSjis);
+                    return ws;
+                }
             }
 #endif
             return std::wstring(raw.begin(), raw.end());

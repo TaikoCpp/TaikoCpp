@@ -27,12 +27,9 @@ void SongSelect::DrawRoundRect(int x1, int y1, int x2, int y2, int r,
 }
 
 SongSelect::SongSelect() {
-    fontLarge = CreateFontToHandle(L"\u30e1\u30a4\u30ea\u30aa", 38, 3,
-        DX_FONTTYPE_ANTIALIASING_4X4);
-    fontNormal = CreateFontToHandle(L"\u30e1\u30a4\u30ea\u30aa", 28, 2,
-        DX_FONTTYPE_ANTIALIASING_4X4);
-    fontUI = CreateFontToHandle(L"\u30e1\u30a4\u30ea\u30aa", 22, 1,
-        DX_FONTTYPE_ANTIALIASING_4X4);
+    fontLarge = CreateFontToHandle(L"FOT-OedoKtr", 38, 3, DX_FONTTYPE_ANTIALIASING_4X4);
+    fontNormal = CreateFontToHandle(L"FOT-OedoKtr", 28, 2, DX_FONTTYPE_ANTIALIASING_4X4);
+    fontUI = CreateFontToHandle(L"FOT-OedoKtr", 22, 1, DX_FONTTYPE_ANTIALIASING_4X4);
 
     sndDong = LoadSoundMem(L"Theme\\default\\sounds\\dong.wav");
     sndKa = LoadSoundMem(L"Theme\\default\\sounds\\ka.wav");
@@ -44,9 +41,11 @@ SongSelect::SongSelect() {
     if (items.empty()) {
         SelectItem dummy;
         dummy.type = SelectItemType::Song;
-        dummy.title = L"(./songs/    TJA  t @ C          ܂   )";
+        dummy.title = L"うんち！";
         items.push_back(dummy);
     }
+
+    createdMs = GetNowCount();
 }
 
 SongSelect::~SongSelect() {
@@ -118,6 +117,12 @@ bool SongSelect::Update() {
     bool curJ = CheckHitKey(KEY_INPUT_J) != 0;
     bool curF = CheckHitKey(KEY_INPUT_F) != 0;
     bool curEsc = CheckHitKey(KEY_INPUT_ESCAPE) != 0;
+
+    // 生成直後200ms間はキー入力を無視（前シーンからのキー持ち越し防止）
+    if (GetNowCount() - createdMs < 200) {
+        prevD = curD; prevK = curK; prevJ = curJ; prevF = curF; prevEsc = curEsc;
+        return false;
+    }
 
     // items     Ȃ   ͏      X L b v
     if (!items.empty()) {
