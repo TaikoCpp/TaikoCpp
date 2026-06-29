@@ -321,4 +321,8 @@ struct SongInfo {
     std::vector<NoteList> branch_m;
     std::vector<NoteList> branch_e;
     std::vector<NoteList> branch_n;
+    // チャート全体のスクロールモード (TJAParser がパース時に設定)
+    // NMSCROLL: GamePlay で (note.bpm/120) × note.scroll_x × BASE_PX を使う
+    // BMSCROLL/HBSCROLL: note.bpm=120 固定、note.scroll_x に bpmchange 累積倍率込み
+    ScrollType scroll_type = ScrollType::NMSCROLL;
 };

@@ -5,8 +5,8 @@
 
 namespace fs = std::filesystem;
 
-GamePlay::GamePlay(const SongEntry& song, int diffId, SongInfo&& chartData)
-    : songEntry(song), diffId(diffId), chart(std::move(chartData)) {
+GamePlay::GamePlay(const SongEntry& song, int diffId, SongInfo&& chartData, bool autoPlay)
+    : songEntry(song), diffId(diffId), chart(std::move(chartData)), autoPlay(autoPlay) {
     fontUI = CreateFontToHandle(L"\u30e1\u30a4\u30ea\u30aa", 22, 2, DX_FONTTYPE_ANTIALIASING_4X4);
     fontScore = CreateFontToHandle(L"\u30e1\u30a4\u30ea\u30aa", 36, 3, DX_FONTTYPE_ANTIALIASING_4X4);
 
@@ -20,6 +20,7 @@ GamePlay::GamePlay(const SongEntry& song, int diffId, SongInfo&& chartData)
     baseImage = LoadGraph(L"Theme\\default\\img\\05_Game\\Base.png");
     courseSymbolImage = LoadGraph(L"Theme\\default\\img\\05_Game\\coursesymbol_oni.png");
     mainBackgroundImage = LoadGraph(L"Theme\\default\\img\\05_Game\\Background_Main.png");
+    subBackgroundImage = LoadGraph(L"Theme\\default\\img\\05_Game\\Background_Sub.png");
     frameImage = LoadGraph(L"Theme\\default\\img\\05_Game\\1P_Frame.png");
 
     // Notes スプライトシート
@@ -67,6 +68,7 @@ GamePlay::~GamePlay() {
     if (baseImage != -1) DeleteGraph(baseImage);
     if (courseSymbolImage != -1) DeleteGraph(courseSymbolImage);
     if (mainBackgroundImage != -1) DeleteGraph(mainBackgroundImage);
+    if (subBackgroundImage != -1) DeleteGraph(subBackgroundImage);
     if (frameImage != -1) DeleteGraph(frameImage);
     if (notesImage != -1) DeleteGraph(notesImage);
 }
@@ -80,10 +82,19 @@ float GamePlay::GetChartMs() const {
         chart.metadata.offset * 1000.0f;
 }
 
+// スクロール実効速度を計算する。
+// NMSCROLL: note.bpm を実BPMとして保持しているため (note.bpm/120) で BPM 補正する。
+// BMSCROLL/HBSCROLL: note.bpm=120 固定 (TJAParser が bpmchange 累積倍率を scroll_x に焼き込み済み)
+//   → (note.bpm/120) = 1.0 となり BPM 補正は自動的に無効化される。
+float GamePlay::CalcScrollPxPerMs(const Note& note) const {
+    float bpmRatio = (note.bpm > 0.0f) ? (note.bpm / 120.0f) : 1.0f;
+    return BASE_SCROLL_PX_PER_MS * bpmRatio * note.scroll_x * SCROLL_SPEED;
+}
+
 float GamePlay::NoteScreenX(const Note& note) const {
     float chartMs = GetChartMs();
     return static_cast<float>(JUDGE_X) +
-        (note.hit_ms - chartMs) * SCROLL_PX_PER_MS * note.scroll_x;
+        (note.hit_ms - chartMs) * CalcScrollPxPerMs(note);
 }
 
 bool GamePlay::IsHittable(const Note& note) const {
@@ -145,11 +156,11 @@ void GamePlay::JudgeNote(ActiveNote& active, bool don, bool ka) {
             RegisterJudge(JudgeResult::Ryo, type);
             if (don) {
                 int slot = FindFreeSoundSlot(sndDon, sndDonIdx);
-                if (sndDon[slot] != -1) { StopSoundMem(sndDon[slot]); PlaySoundMem(sndDon[slot], DX_PLAYTYPE_BACK); }
+                if (sndDon[slot] != -1) PlaySoundMem(sndDon[slot], DX_PLAYTYPE_BACK);
             }
             if (ka) {
                 int slot = FindFreeSoundSlot(sndKa, sndKaIdx);
-                if (sndKa[slot] != -1) { StopSoundMem(sndKa[slot]); PlaySoundMem(sndKa[slot], DX_PLAYTYPE_BACK); }
+                if (sndKa[slot] != -1) PlaySoundMem(sndKa[slot], DX_PLAYTYPE_BACK);
             }
         }
     }
@@ -159,11 +170,11 @@ void GamePlay::JudgeNote(ActiveNote& active, bool don, bool ka) {
             RegisterJudge(JudgeResult::Ka, type);
             if (don) {
                 int slot = FindFreeSoundSlot(sndDon, sndDonIdx);
-                if (sndDon[slot] != -1) { StopSoundMem(sndDon[slot]); PlaySoundMem(sndDon[slot], DX_PLAYTYPE_BACK); }
+                if (sndDon[slot] != -1) PlaySoundMem(sndDon[slot], DX_PLAYTYPE_BACK);
             }
             if (ka) {
                 int slot = FindFreeSoundSlot(sndKa, sndKaIdx);
-                if (sndKa[slot] != -1) { StopSoundMem(sndKa[slot]); PlaySoundMem(sndKa[slot], DX_PLAYTYPE_BACK); }
+                if (sndKa[slot] != -1) PlaySoundMem(sndKa[slot], DX_PLAYTYPE_BACK);
             }
         }
     }
@@ -172,27 +183,12 @@ void GamePlay::JudgeNote(ActiveNote& active, bool don, bool ka) {
 void GamePlay::ProcessInput(bool donPressed, bool kaPressed) {
     float chartMs = GetChartMs();
 
-    bool noteHit = false;
     for (auto& active : notes) {
         if (active.judged) continue;
         float delta = std::fabs(chartMs - active.note->hit_ms);
         if (delta > JUDGE_KA_MS) continue;
         if (donPressed || kaPressed) {
             JudgeNote(active, donPressed, kaPressed);
-            noteHit = true;
-            break;
-        }
-    }
-
-    // ノーツにヒットしなかった場合でも打鍵音を再生する
-    if (!noteHit) {
-        if (donPressed) {
-            int slot = FindFreeSoundSlot(sndDon, sndDonIdx);
-            if (sndDon[slot] != -1) { StopSoundMem(sndDon[slot]); PlaySoundMem(sndDon[slot], DX_PLAYTYPE_BACK); }
-        }
-        if (kaPressed) {
-            int slot = FindFreeSoundSlot(sndKa, sndKaIdx);
-            if (sndKa[slot] != -1) { StopSoundMem(sndKa[slot]); PlaySoundMem(sndKa[slot], DX_PLAYTYPE_BACK); }
         }
     }
 }
@@ -214,6 +210,21 @@ bool GamePlay::Update() {
 
     if ((curDon && !prevDon) || (curKa && !prevKa)) {
         ProcessInput(curDon && !prevDon, curKa && !prevKa);
+    }
+
+    // オートプレイ: hit_ms を過ぎたノートを自動で叩く
+    if (autoPlay) {
+        float chartMs = GetChartMs();
+        for (auto& active : notes) {
+            if (active.judged) continue;
+            if (chartMs < active.note->hit_ms) continue;  // まだ時間が来ていない
+            NoteType type = active.note->type;
+            bool isDon = type == NoteType::DON || type == NoteType::DON_L ||
+                type == NoteType::ROLL_HEAD || type == NoteType::ROLL_HEAD_L ||
+                type == NoteType::BALLOON_HEAD || type == NoteType::KUSUDAMA;
+            bool isKa = type == NoteType::KAT || type == NoteType::KAT_L;
+            JudgeNote(active, isDon, isKa);
+        }
     }
 
     float chartMs = GetChartMs();
@@ -263,60 +274,49 @@ void GamePlay::DrawNote(const Note& note, float x) const {
 
     switch (note.type) {
     case NoteType::DON:
-        // col=1(小ドン), row=0, 小サイズ
         DrawNoteSprite(1, 0, cx, cy, NS_DST_H_S);
         break;
     case NoteType::KAT:
-        // col=2(小カッ)
         DrawNoteSprite(2, 0, cx, cy, NS_DST_H_S);
         break;
     case NoteType::DON_L:
-        // col=3(大ドン)
         DrawNoteSprite(3, 0, cx, cy, NS_DST_H_L);
         break;
     case NoteType::KAT_L:
-        // col=4(大カッ)
         DrawNoteSprite(4, 0, cx, cy, NS_DST_H_L);
         break;
     case NoteType::ROLL_HEAD:
     case NoteType::ROLL_HEAD_L: {
-        // ロール: body を head の右側に敷き詰め、最後に head を最前面に描く
         bool isLarge = (note.type == NoteType::ROLL_HEAD_L);
-        int bodyCol = isLarge ? 8 : 6;   // ロールbody大/小
-        int headCol = isLarge ? 3 : 1;   // 大ドン/小ドン顔
+        int bodyCol = isLarge ? 8 : 6;
+        int headCol = isLarge ? 3 : 1;
         int dstH = isLarge ? NS_DST_H_L : NS_DST_H_S;
-        // body の描画幅を計算 (縦横比を保つ)
         int bodySrcW = NS_SRC_W[bodyCol];
         int bodyDstW = static_cast<int>(bodySrcW * (static_cast<float>(dstH) / NS_SRC_H));
         if (bodyDstW <= 0) bodyDstW = 1;
-        // ロール終端 x: unload_ms (TAIL の時刻) をスクリーン座標に変換
         float chartMs = GetChartMs();
         int rollEndX;
         if (note.unload_ms > note.hit_ms) {
             float endScreenX = static_cast<float>(JUDGE_X) +
-                (note.unload_ms - chartMs) * SCROLL_PX_PER_MS * note.scroll_x;
+                (note.unload_ms - chartMs) * CalcScrollPxPerMs(note);
             rollEndX = static_cast<int>(endScreenX);
         }
         else {
             rollEndX = cx + 120;
         }
-        // body を head(cx) から rollEndX へ左→右に並べる
         for (int bx = cx; bx < rollEndX; bx += bodyDstW) {
             int bx1 = bx;
             int bx2 = bx + bodyDstW;
             DrawRectExtendGraph(bx1, cy - dstH / 2, bx2, cy + dstH / 2,
                 NS_SRC_X[bodyCol], 0, bodySrcW, NS_SRC_H, notesImage, TRUE);
         }
-        // head を最前面に
         DrawNoteSprite(headCol, 0, cx, cy, dstH);
         break;
     }
     case NoteType::BALLOON_HEAD:
-        // col=5(バルーン小黄色顔)
         DrawNoteSprite(5, 0, cx, cy, NS_DST_H_S);
         break;
     case NoteType::KUSUDAMA:
-        // col=9(kusudama/風船)
         DrawNoteSprite(9, 0, cx, cy, NS_DST_H_L);
         break;
     default:
@@ -324,7 +324,7 @@ void GamePlay::DrawNote(const Note& note, float x) const {
     }
 }
 
-// 再生が終わっているスロットを優先して返す。全スロット再生中なら最も古いものを返す。
+
 int GamePlay::FindFreeSoundSlot(const int* sndBuf, int& idx) const {
     for (int i = 0; i < SND_BUF; i++) {
         int slot = (idx + i) % SND_BUF;
@@ -333,23 +333,21 @@ int GamePlay::FindFreeSoundSlot(const int* sndBuf, int& idx) const {
             return slot;
         }
     }
-    // 全スロット再生中 → ラウンドロビンで現在位置を使う（最終手段）
     int slot = idx;
     idx = (idx + 1) % SND_BUF;
     return slot;
 }
 
 void GamePlay::DrawBarLines() const {
-    // chart.master_notes.bars には小節線ノートが入っている
-    // 小節線は半透明の白い縦線としてレーン上に描画する
     float chartMs = GetChartMs();
     const int SW = 1280;
     const unsigned int barColor = GetColor(200, 200, 200);
 
     for (const Note* bar : chart.master_notes.bars) {
         if (!bar) continue;
+        if (!bar->display) continue;  // #BARLINEOFF で非表示にされた小節線をスキップ
         float x = static_cast<float>(JUDGE_X) +
-            (bar->hit_ms - chartMs) * SCROLL_PX_PER_MS * bar->scroll_x;
+            (bar->hit_ms - chartMs) * CalcScrollPxPerMs(*bar);
         if (x < 0 || x > SW) continue;
         int ix = static_cast<int>(x);
         // レーン全高に渡る縦線 (幅2px)
@@ -358,116 +356,54 @@ void GamePlay::DrawBarLines() const {
 }
 
 void GamePlay::Draw() {
-    // -----------------------------------------------------------------------
-    // 座標変換の説明:
-    //   .aup2 の座標系: 1920x1080、中心原点 (960, 540)
-    //   ゲーム画面:    1280x720、左上原点
-    //   スケール係数:  sx = 1280/1920 = 2/3、sy = 720/1080 = 2/3
-    //
-    //   aup2 の中心座標 → 1920x1080 上のスクリーン座標:
-    //     screen_cx = 960 + aup_x
-    //     screen_cy = 540 + aup_y
-    //
-    //   画像のスケール後サイズ:
-    //     scaled_w = img_w * scale
-    //     scaled_h = img_h * scale
-    //
-    //   1920x1080 上の左上:
-    //     tl_x = screen_cx - scaled_w / 2
-    //     tl_y = screen_cy - scaled_h / 2
-    //
-    //   1280x720 への変換:
-    //     draw_x1 = tl_x * (2/3)
-    //     draw_y1 = tl_y * (2/3)
-    //     draw_x2 = (tl_x + scaled_w) * (2/3)
-    //     draw_y2 = (tl_y + scaled_h) * (2/3)
-    // -----------------------------------------------------------------------
-
     const int SW = 1280, SH = 720;
-
-    // 画質向上: バイリニアフィルタを使用
     SetDrawMode(DX_DRAWMODE_BILINEAR);
 
-    // ------------------------------------------------------------------
-    // Layer 0: グレー背景 (図形・背景 #606060)
-    // ------------------------------------------------------------------
+    // --- 背景色 ---
     DrawBox(0, 0, SW, SH, GetColor(0x60, 0x60, 0x60), TRUE);
 
-    // ------------------------------------------------------------------
-    // Layer 1: 1P_Background.png  (透過なし)
-    //   aup2: X=-710, Y=-135, scale=150%  /  image: 333x176
-    //   1920x1080 center: (250, 405), scaled: 499.5x264
-    //   TL: (0.25, 273) → 1280x720: (0, 182)
-    //   元画像が scale=150% で 333*1.5=499.5 ≒ 500px 幅になるが、
-    //   1280x720 への縮小後は 333px 幅に戻り等倍 → DrawGraph で劣化なし
-    // ------------------------------------------------------------------
+    // --- 1P_Background: 左側太鼓エリア (0,182)-(333,358) ---
     if (backgroundImage != -1) {
-        DrawGraph(0, 182, backgroundImage, FALSE);  // 透過なし(FALSE)、等倍描画
+        DrawExtendGraph(0, 182, 333, 358, backgroundImage, FALSE);
     }
 
-    // ------------------------------------------------------------------
-    // Layer 2: Base.png  (太鼓の台座)
-    //   aup2: X=-595.41, Y=-129.23, scale=200%  /  image: 154x171
-    //   1280x720: (140, 160) → (346, 388)  (206x228 に拡大)
-    // ------------------------------------------------------------------
+    // --- Background_Main: レーン背景を黒塗りで (329,183)-(1280,357) ---
+    DrawBox(329, 183, 1280, 357, GetColor(0, 0, 0), TRUE);
+
+    // --- Background_Sub: レーン下のサブ背景帯 (334,323)-(1280,350) ---
+    if (subBackgroundImage != -1) {
+        DrawExtendGraph(334, 323, 1280, 350, subBackgroundImage, TRUE);
+    }
+
+    // --- coursesymbol_oni: 左上の難易度シンボル ---
+    // 画像2252x720, スケール150%, 画面左端に対応するsrc_x=894
+    if (courseSymbolImage != -1) {
+        DrawRectExtendGraph(0, 182, 1280, 357,
+            894, 115, 1280, 175,
+            courseSymbolImage, TRUE);
+    }
+
+    // --- Base: 太鼓本体 (140,160)-(346,388) ---
     if (baseImage != -1) {
         DrawExtendGraph(140, 160, 346, 388, baseImage, TRUE);
     }
 
-    // ------------------------------------------------------------------
-    // Layer 3: coursesymbol_oni.png
-    //   aup2: X=-612, Y=-173, scale=150%  /  image: 2252x720
-    //   1920x1080 center: (348, 367), scaled: 3378x1080
-    //   TL(1920x1080): (-1341, -173) → 1280x720: (-894, -115)
-    //   BR(1920x1080): (2037, 907)   → 1280x720: (1358, 605)
-    //   画面に見える範囲: (0,0)→(1280,605)
-    //   元画像上の対応クロップ:
-    //     描画全体サイズ = 2252x720 (縮小率がちょうど 2/3*1.5=1.0 倍で等倍)
-    //     src_x = 894, src_y = 115, width = 1280, height = 605
-    //   → DrawRectGraph で等倍コピー (最高画質)
-    // ------------------------------------------------------------------
-    if (courseSymbolImage != -1) {
-        DrawRectGraph(0, 0,
-            894, 115, 1280, 605,
-            courseSymbolImage, TRUE);
-    }
-
-    // ------------------------------------------------------------------
-    // Layer 4: Background_Main.png  (単色化=黒、画像不要)
-    //   aup2: X=480, Y=-135, scale=200%  /  image: 947x130
-    //   1280x720: (329, 183) → (1280, 357)
-    //   単色化(黒, 強さ=100%) → 黒矩形で代替
-    // ------------------------------------------------------------------
-    DrawBox(329, 183, 1280, 357, GetColor(0, 0, 0), TRUE);
-
-    // ------------------------------------------------------------------
-    // Layer 5: 1P_Frame.png  (デコレーションフレーム)
-    //   aup2: X=250, Y=-170, scale=150%  /  image: 951x224
-    //   1280x720 TL: (331, 135), scaled: 1426x336
-    //   右端が画面外 → src を (1280-331)/1.5 = 632px 分だけ切り出し
-    //   DrawRectExtendGraph でクロップ+拡大
-    // ------------------------------------------------------------------
+    // --- 1P_Frame: レーン枠 (328,134)-(1279,358) ---
+    // 1P_Frame.png は 951x224 → 全体を引き伸ばして描画（いじらない）
     if (frameImage != -1) {
-        DrawRectExtendGraph(331, 135, 1280, 359,
-            0, 0, 633, 224,
-            frameImage, TRUE);
+        DrawExtendGraph(328, 134, 1279, 358, frameImage, TRUE);
     }
 
-    // ------------------------------------------------------------------
-    // 判定ライン & 判定円
-    // ------------------------------------------------------------------
+    // --- 判定ライン ---
     SetDrawBlendMode(DX_BLENDMODE_NOBLEND, 0);
-    DrawLine(JUDGE_X, 183, JUDGE_X, 357, GetColor(255, 255, 255), FALSE);
-    DrawCircle(JUDGE_X, 270, 36, GetColor(255, 255, 255), FALSE);
 
-    // ------------------------------------------------------------------
-    // 小節線描画 (ノーツより下のレイヤー)
-    // ------------------------------------------------------------------
+    // --- 小節線 ---
     DrawBarLines();
 
-    // ------------------------------------------------------------------
-    // ノーツ描画
-    // ------------------------------------------------------------------
+    // --- 判定枠 (Notes.png col=0): ノーツより後ろに描画 ---
+    DrawNoteSprite(0, 0, JUDGE_X, LANE_CY, NS_DST_H_JUDGE);
+
+    // --- ノーツ描画 ---
     for (const auto& active : notes) {
         if (active.judged) continue;
         float x = NoteScreenX(*active.note);
@@ -475,4 +411,26 @@ void GamePlay::Draw() {
         DrawNote(*active.note, x);
     }
 
+    // --- スコア・コンボ・判定表示 ---
+    // スコア (右上)
+    DrawStringToHandle(SW - 300, 10, (std::wstring(L"SCORE: ") + std::to_wstring(score)).c_str(),
+        GetColor(255, 255, 255), fontScore);
+    // コンボ (判定円の上)
+    if (combo > 0) {
+        std::wstring comboStr = std::to_wstring(combo);
+        DrawStringToHandle(JUDGE_X - 20, LANE_CY - 70, comboStr.c_str(),
+            GetColor(255, 215, 0), fontScore);
+    }
+    // 判定結果カウント (右下)
+    DrawFormatStringToHandle(SW - 250, SH - 90, GetColor(255, 80, 80), fontUI,
+        L"良: %d", ryoCount);
+    DrawFormatStringToHandle(SW - 250, SH - 65, GetColor(100, 180, 255), fontUI,
+        L"可: %d", kaCount);
+    DrawFormatStringToHandle(SW - 250, SH - 40, GetColor(160, 160, 160), fontUI,
+        L"不可: %d", fukaCount);
+
+    // --- オートプレイ表示 ---
+    if (autoPlay) {
+        DrawStringToHandle(10, 40, L"AUTO", GetColor(255, 215, 0), fontUI);
+    }
 }

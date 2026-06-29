@@ -32,7 +32,15 @@ private:
         float bpmchange_last_bpm = 120.0f;
         float scroll_x_modifier = 1.0f;
         float scroll_y_modifier = 0.0f;
+        // scroll_type: チャート全体のスクロールモード
+        //   NMSCROLL … note.bpm/120 × note.scroll_x で描画速度を計算 (GamePlay側で補正)
+        //   BMSCROLL … BPM変化を bpmchange として Timeline に記録し、
+        //               再生時に累積倍率を乗算して描画速度を決定
+        //   HBSCROLL … BMSCROLL と同じ累積方式だが描画タイミングが異なる
         ScrollType scroll_type = ScrollType::NMSCROLL;
+        // BMSCROLL/HBSCROLL 時の現在の bpmchange 累積倍率 (note.scroll_x に乗算して保存)
+        float bpm_scroll_accum = 1.0f;
+
         bool barline_display = true;
         std::vector<Note*>* curr_note_list = nullptr;
         std::vector<Note*>* curr_draw_list = nullptr;
@@ -65,6 +73,7 @@ private:
     std::vector<NoteList> branch_m;
     std::vector<NoteList> branch_e;
     std::vector<NoteList> branch_n;
+    ScrollType chart_scroll_type_ = ScrollType::NMSCROLL;  // パース結果のスクロールタイプ
 
     static std::string strip_comments(const std::string& line);
     static void trim(std::string& s);

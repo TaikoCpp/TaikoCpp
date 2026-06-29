@@ -30,7 +30,7 @@ struct NoteSprite {
 
 class GamePlay : public IScene {
 public:
-    GamePlay(const SongEntry& song, int diffId, SongInfo&& chart);
+    GamePlay(const SongEntry& song, int diffId, SongInfo&& chart, bool autoPlay = false);
     ~GamePlay();
     bool Update() override;
     void Draw() override;
@@ -67,6 +67,7 @@ private:
     int baseImage = -1;
     int courseSymbolImage = -1;
     int mainBackgroundImage = -1;
+    int subBackgroundImage = -1;
     int frameImage = -1;
 
     // Notes.png スプライトシート
@@ -76,12 +77,21 @@ private:
     bool showFps = true;
     bool prevF2 = false;
 
+    // オートプレイ
+    bool autoPlay = false;
+
     bool prevDon = false;
     bool prevKa = false;
     bool prevEsc = false;
 
-    static constexpr int JUDGE_X = 390;
-    static constexpr float SCROLL_PX_PER_MS = 0.55f;
+    static constexpr int JUDGE_X = 410;   // col0判定枠の中心x (theme.aup2より)
+
+    // スクロール速度
+    // BPM120・#SCROLL 1.0 のとき: 870px / (4 × 500ms) = 0.435 px/ms
+    // NMSCROLL … GamePlay で (note.bpm/120) × note.scroll_x を乗算
+    // BMSCROLL/HBSCROLL … note.bpm=120 固定 (BPM補正不要)、note.scroll_x に累積倍率込み
+    static constexpr float SCROLL_SPEED = 1.0f;             // ← ここを変えるだけで速さ調整
+    static constexpr float BASE_SCROLL_PX_PER_MS = 0.435f;  // BPM120, scroll_x=1.0, speed=1.0
     static constexpr float JUDGE_RYO_MS = 35.0f;
     static constexpr float JUDGE_KA_MS = 80.0f;
 
@@ -93,17 +103,19 @@ private:
     static constexpr int NS_SRC_H = 130;   // 1行の高さ
     static constexpr int NS_ROW_H = 130;   // 各行のy幅
 
-    // 描画先サイズ: TJAPlayer3 参照実装に合わせ src と同じ高さで描画
-    // レーン高さ 174px に対して: 小=130px(等倍), 大=174px(レーン全高)
-    static constexpr int NS_DST_H_S = 130;
-    static constexpr int NS_DST_H_L = 174;
+    // 描画先サイズ: theme.aup2実測値 (src 130px を 0.9862倍 ≒ 128px)
+    // 小・大・判定枠すべて同じ高さ128px (AviUtlでも行変えのみでサイズ同一)
+    static constexpr int NS_DST_H_S = 128;
+    static constexpr int NS_DST_H_L = 128;
+    static constexpr int NS_DST_H_JUDGE = 128;
 
     // レーン定数
     static constexpr int LANE_TOP = 183;
     static constexpr int LANE_BOTTOM = 357;
-    static constexpr int LANE_CY = 270;  // (183+357)/2
+    static constexpr int LANE_CY = 258;  // Notes row0 center (theme.aup2より)
 
     float GetChartMs() const;
+    float CalcScrollPxPerMs(const Note& note) const;
     float NoteScreenX(const Note& note) const;
     bool IsHittable(const Note& note) const;
     void ProcessInput(bool donPressed, bool kaPressed);

@@ -406,9 +406,16 @@ Note* TJAParser::add_bar(ParserState& state) {
     bar_line->hit_ms = current_ms_;
     bar_line->type = NoteType::NONE;
     bar_line->display = state.barline_display;
-    bar_line->bpm = state.bpm;
-    bar_line->scroll_x = state.scroll_x_modifier;
     bar_line->scroll_y = state.scroll_y_modifier;
+
+    if (state.scroll_type == ScrollType::BMSCROLL || state.scroll_type == ScrollType::HBSCROLL) {
+        bar_line->bpm = 120.0f;  // BPM補正を無効化 (累積倍率は scroll_x に焼き込み済み)
+        bar_line->scroll_x = state.scroll_x_modifier;
+    }
+    else {
+        bar_line->bpm = state.bpm;
+        bar_line->scroll_x = state.scroll_x_modifier;
+    }
 
     if (state.barline_added) {
         bar_line->display = false;
@@ -431,9 +438,21 @@ Note* TJAParser::add_note(const std::string& item, ParserState& state) {
     note->display = true;
     note->type = static_cast<NoteType>(std::stoi(item));
     note->index = state.index;
-    note->bpm = state.bpm;
-    note->scroll_x = state.scroll_x_modifier;
     note->scroll_y = state.scroll_y_modifier;
+
+    if (state.scroll_type == ScrollType::BMSCROLL || state.scroll_type == ScrollType::HBSCROLL) {
+        // BMSCROLL/HBSCROLL: bpmchange 累積倍率が scroll_x_modifier に焼き込まれているため、
+        // GamePlay 側の BPM 補正 (note.bpm / 120) が二重にかかるのを防ぐため bpm を 120 固定にする。
+        // scroll_x には (base_scroll × bpm_scroll_accum × #SCROLL値) が入っている。
+        note->bpm = 120.0f;
+        note->scroll_x = state.scroll_x_modifier;
+    }
+    else {
+        // NMSCROLL: note.bpm を実BPMとして記録し、
+        // GamePlay 側で (note.bpm / 120) × note.scroll_x により BPM 変化に追従する。
+        note->bpm = state.bpm;
+        note->scroll_x = state.scroll_x_modifier;
+    }
 
     if (state.sudden_appear > 0 || state.sudden_moving > 0) {
         note->sudden_appear_ms = state.sudden_appear;
@@ -477,53 +496,57 @@ void TJAParser::handle_measure(const std::string& part, ParserState& state) {
 void TJAParser::handle_scroll(const std::string& part, ParserState& state) {
     std::string val = part;
     trim(val);
-    if (state.scroll_type != ScrollType::BMSCROLL) {
-        std::string normalized = val;
-        normalized.erase(std::remove(normalized.begin(), normalized.end(), ','), normalized.end());
-        normalized.erase(std::remove(normalized.begin(), normalized.end(), ' '), normalized.end());
 
-        size_t i_pos = normalized.find('i');
-        if (i_pos != std::string::npos) {
-            std::string without_i = normalized.substr(0, i_pos);
-            try {
-                size_t sep = without_i.rfind('+');
-                if (sep == std::string::npos || sep == 0) {
-                    sep = without_i.rfind('-', without_i.size() - 1);
-                }
-                if (sep != std::string::npos && sep > 0) {
-                    state.scroll_x_modifier = std::stof(without_i.substr(0, sep));
-                    state.scroll_y_modifier = std::stof(without_i.substr(sep));
-                }
-                else {
-                    state.scroll_x_modifier = 0.0f;
-                    state.scroll_y_modifier = std::stof(without_i.empty() ? "1" : without_i);
-                }
+    float new_x = 1.0f, new_y = 0.0f;
+
+    // 複素数形式 (例: "2.0i", "1.0+0.5i") のパース
+    std::string normalized = val;
+    normalized.erase(std::remove(normalized.begin(), normalized.end(), ','), normalized.end());
+    normalized.erase(std::remove(normalized.begin(), normalized.end(), ' '), normalized.end());
+
+    size_t i_pos = normalized.find('i');
+    if (i_pos != std::string::npos) {
+        std::string without_i = normalized.substr(0, i_pos);
+        try {
+            size_t sep = without_i.rfind('+');
+            if (sep == std::string::npos || sep == 0) {
+                sep = without_i.rfind('-', without_i.size() - 1);
             }
-            catch (...) {
-                state.scroll_x_modifier = 1.0f;
-                state.scroll_y_modifier = 0.0f;
+            if (sep != std::string::npos && sep > 0) {
+                new_x = std::stof(without_i.substr(0, sep));
+                new_y = std::stof(without_i.substr(sep));
+            }
+            else {
+                new_x = 0.0f;
+                new_y = std::stof(without_i.empty() ? "1" : without_i);
             }
         }
-        else {
-            try {
-                state.scroll_x_modifier = std::stof(normalized);
-                state.scroll_y_modifier = 0.0f;
-            }
-            catch (...) {
-                state.scroll_x_modifier = 1.0f;
-                state.scroll_y_modifier = 0.0f;
-            }
+        catch (...) {
+            new_x = 1.0f; new_y = 0.0f;
         }
     }
     else {
         try {
-            state.scroll_x_modifier = std::stof(val);
-            state.scroll_y_modifier = 0.0f;
+            new_x = std::stof(normalized);
+            new_y = 0.0f;
         }
         catch (...) {
-            state.scroll_x_modifier = 1.0f;
-            state.scroll_y_modifier = 0.0f;
+            new_x = 1.0f; new_y = 0.0f;
         }
+    }
+
+    if (state.scroll_type == ScrollType::BMSCROLL || state.scroll_type == ScrollType::HBSCROLL) {
+        // BMSCROLL/HBSCROLL: #SCROLL 値に bpmchange 累積倍率を乗算して保持する。
+        // これにより note.scroll_x = (#SCROLL値) × (bpmchange累積) となり、
+        // GamePlay は BPM 補正なしで BASE_PX_PER_MS × scroll_x を使えばよい。
+        state.scroll_x_modifier = new_x * state.bpm_scroll_accum;
+        state.scroll_y_modifier = new_y;
+    }
+    else {
+        // NMSCROLL: #SCROLL 値をそのまま保持。
+        // GamePlay 側で (note.bpm / 120) × note.scroll_x × BASE_PX_PER_MS で補正。
+        state.scroll_x_modifier = new_x;
+        state.scroll_y_modifier = new_y;
     }
 }
 
@@ -532,14 +555,25 @@ void TJAParser::handle_bpmchange(const std::string& part, ParserState& state) {
     trim(val);
     float parsed_bpm = std::stof(val);
     if (state.scroll_type == ScrollType::BMSCROLL || state.scroll_type == ScrollType::HBSCROLL) {
-        float bpmchange = parsed_bpm / state.bpmchange_last_bpm;
+        // BMSCROLL/HBSCROLL: BPM変化を累積倍率として scroll_x_modifier に乗算して保持する。
+        // tja.py では TimelineObject.bpmchange として記録し再生時に累積するが、
+        // C++ では GamePlay が Timeline を走査する機構がないため、
+        // パース時点で scroll_x_modifier に累積倍率を焼き込む方式を採用する。
+        // (note.bpm はパース時の実BPMを保持し、GamePlay の BPM 補正には使わない)
+        float ratio = (state.bpmchange_last_bpm > 0.0f) ? parsed_bpm / state.bpmchange_last_bpm : 1.0f;
         state.bpmchange_last_bpm = parsed_bpm;
+        state.bpm_scroll_accum *= ratio;
+        state.scroll_x_modifier *= ratio;
+
+        // Timeline にも記録 (将来的に BMSCROLL ランタイム処理を実装する場合に使用)
         TimelineObject* obj = new TimelineObject();
         obj->hit_ms = current_ms_;
-        obj->bpmchange = bpmchange;
+        obj->bpmchange = ratio;
         state.curr_timeline->push_back(obj);
     }
     else {
+        // NMSCROLL: BPM を更新し、note.bpm に記録する。
+        // GamePlay 側で (note.bpm / 120) × note.scroll_x × BASE_PX_PER_MS により描画速度を算出。
         TimelineObject* obj = new TimelineObject();
         obj->hit_ms = current_ms_;
         obj->bpm = parsed_bpm;
@@ -665,9 +699,22 @@ void TJAParser::handle_jposscroll(const std::string& part, ParserState& state) {
     state.judge_pos_y += delta_y;
 }
 
-void TJAParser::handle_nmscroll(ParserState& state) { state.scroll_type = ScrollType::NMSCROLL; }
-void TJAParser::handle_bmscroll(ParserState& state) { state.scroll_type = ScrollType::BMSCROLL; }
-void TJAParser::handle_hbscroll(ParserState& state) { state.scroll_type = ScrollType::HBSCROLL; }
+void TJAParser::handle_nmscroll(ParserState& state) {
+    state.scroll_type = ScrollType::NMSCROLL;
+    // NMSCROLL に戻ったら累積倍率をリセット
+    state.bpm_scroll_accum = 1.0f;
+    state.scroll_x_modifier = 1.0f;
+}
+void TJAParser::handle_bmscroll(ParserState& state) {
+    state.scroll_type = ScrollType::BMSCROLL;
+    state.bpm_scroll_accum = 1.0f;
+    state.bpmchange_last_bpm = state.bpm;
+}
+void TJAParser::handle_hbscroll(ParserState& state) {
+    state.scroll_type = ScrollType::HBSCROLL;
+    state.bpm_scroll_accum = 1.0f;
+    state.bpmchange_last_bpm = state.bpm;
+}
 void TJAParser::handle_barlineon(ParserState& state) { state.barline_display = true; }
 void TJAParser::handle_barlineoff(ParserState& state) { state.barline_display = false; }
 
@@ -879,6 +926,9 @@ void TJAParser::notes_to_position(int diff) {
             }
         }
     }
+
+    // チャート全体のスクロールタイプを保存 (SongInfo 経由で GamePlay へ伝搬)
+    chart_scroll_type_ = state.scroll_type;
 }
 
 std::wstring TJAParser::ReadTitle(const fs::path& path) {
@@ -947,5 +997,6 @@ SongInfo TJAParser::parse(int diff) {
     songInfo.branch_m = std::move(branch_m);
     songInfo.branch_e = std::move(branch_e);
     songInfo.branch_n = std::move(branch_n);
+    songInfo.scroll_type = chart_scroll_type_;
     return songInfo;
 }
