@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <filesystem>
+#include <unordered_map>
 #include "IScene.h"
 #include "SongInfo.h"
 #include "BoxDef.h"
@@ -64,4 +65,7 @@ private:
     bool prevJ = false, prevF = false;
     bool prevEsc = false;
     int  createdMs = 0;
+
+    // 追加: 起動中のタイトルキャッシュ（TJA を毎回パースするコストを削減）
+    mutable std::unordered_map<std::wstring, std::wstring> titleCache;
 };

@@ -1,4 +1,4 @@
-#if defined(_MSC_VER)
+﻿#if defined(_MSC_VER)
 #pragma execution_character_set("utf-8")
 #endif
 #include "TJAParser.h"
@@ -14,6 +14,43 @@
 #endif
 
 namespace fs = std::filesystem;
+
+namespace {
+
+    bool OpenInputFile(std::ifstream& stream, const fs::path& path) {
+#if defined(_WIN32)
+        stream.open(path.wstring(), std::ios::binary);
+#else
+        stream.open(path.string(), std::ios::binary);
+#endif
+        return stream.is_open();
+
+    }
+
+
+} // namespace
+
+namespace {
+    bool TryParseFloat(const std::string& text, float& out) {
+        try {
+            out = std::stof(text);
+            return true;
+        }
+        catch (...) {
+            return false;
+        }
+    }
+
+    bool TryParseInt(const std::string& text, int& out) {
+        try {
+            out = std::stoi(text);
+            return true;
+        }
+        catch (...) {
+            return false;
+        }
+    }
+} // namespace
 
 const std::map<int, std::string> TJAParser::DIFFS = {
     {0, "easy"}, {1, "normal"}, {2, "hard"}, {3, "oni"},
@@ -50,10 +87,10 @@ std::vector<int> TJAParser::parse_int_list(const std::string& raw) {
     while (std::getline(ss, token, ',')) {
         trim(token);
         if (token.empty()) continue;
-        try {
-            result.push_back(static_cast<int>(std::stof(token)));
+        float parsed = 0.0f;
+        if (TryParseFloat(token, parsed)) {
+            result.push_back(static_cast<int>(parsed));
         }
-        catch (...) {}
     }
     return result;
 }
@@ -76,8 +113,8 @@ int TJAParser::parse_course_value(const std::string& course_str) {
 
 void TJAParser::load_file_lines() {
     data.clear();
-    std::ifstream file(file_path, std::ios::binary);
-    if (!file.is_open()) return;
+    std::ifstream file;
+    if (!OpenInputFile(file, file_path)) return;
 
     std::string line;
     while (std::getline(file, line)) {
@@ -363,8 +400,26 @@ std::vector<std::vector<std::string>> TJAParser::data_to_notes(int diff) {
     return notes;
 }
 
+// note->type (NoteType) から元のTJA譜面上の音符番号 (0〜9) を復元する。
+// add_note() 側の TJA_DIGIT_TO_TYPE と対になる逆引き。
+static int NoteTypeToTjaDigit(NoteType t) {
+    switch (t) {
+    case NoteType::NONE:         return 0;
+    case NoteType::DON:          return 1;
+    case NoteType::KAT:          return 2;
+    case NoteType::DON_L:        return 3;
+    case NoteType::KAT_L:        return 4;
+    case NoteType::ROLL_HEAD:    return 5;
+    case NoteType::ROLL_HEAD_L:  return 6;
+    case NoteType::BALLOON_HEAD: return 7;
+    case NoteType::TAIL:         return 8;
+    case NoteType::KUSUDAMA:     return 9;
+    default:                     return -1;
+    }
+}
+
 float TJAParser::get_ms_per_measure(float bpm_val, float time_sig) {
-    if (bpm_val == 0.0f) return 0.0f;
+    if (bpm_val <= 0.0f || time_sig <= 0.0f) return 0.0f;
     return 60000.0f * (time_sig * 4.0f) / bpm_val;
 }
 
@@ -373,13 +428,13 @@ void TJAParser::get_moji(std::vector<Note*>& play_note_list, float ms_per_measur
     if (play_note_list.size() <= 1) return;
 
     Note* current = play_note_list.back();
-    int cur_type = static_cast<int>(current->type);
+    int cur_type = NoteTypeToTjaDigit(current->type);
     if (cur_type == 1) current->moji = 0;
     else if (cur_type == 2) current->moji = 3;
     else if (cur_type >= 0 && cur_type <= 9) current->moji = se_notes[cur_type];
 
     Note* prev = play_note_list[play_note_list.size() - 2];
-    int prev_type = static_cast<int>(prev->type);
+    int prev_type = NoteTypeToTjaDigit(prev->type);
     float threshold = ms_per_measure / 8.0f - 1.0f;
 
     if (prev_type == 1) {
@@ -396,8 +451,8 @@ void TJAParser::get_moji(std::vector<Note*>& play_note_list, float ms_per_measur
         Note* n4 = play_note_list[play_note_list.size() - 4];
         Note* n3 = play_note_list[play_note_list.size() - 3];
         Note* n2 = play_note_list[play_note_list.size() - 2];
-        if (static_cast<int>(n4->type) == 1 && static_cast<int>(n3->type) == 1 &&
-            static_cast<int>(n2->type) == 1) {
+        if (NoteTypeToTjaDigit(n4->type) == 1 && NoteTypeToTjaDigit(n3->type) == 1 &&
+            NoteTypeToTjaDigit(n2->type) == 1) {
             bool rapid = (n3->hit_ms - n4->hit_ms < ms_per_measure / 8.0f) &&
                 (n2->hit_ms - n3->hit_ms < ms_per_measure / 8.0f);
             if (rapid) {
@@ -450,7 +505,33 @@ Note* TJAParser::add_note(const std::string& item, ParserState& state) {
     note->hit_ms = current_ms_;
     state.delay_last_note_ms = current_ms_;
     note->display = true;
-    note->type = static_cast<NoteType>(std::stoi(item));
+
+    // TJA譜面上の音符番号 (0〜9) と NoteType 列挙値は数値が一致しないため、
+    // 直接 static_cast すると小音符/大音符/連打などの種別がズレてしまう。
+    // (例: TJA "1"=ドン のはずが static_cast<NoteType>(1)=KAT になってしまう)
+    // 対応表を介して正しい NoteType に変換する。
+    // TJA: 0=空 1=ドン 2=カッ 3=ドン(大) 4=カッ(大) 5=連打 6=連打(大) 7=風船 8=連打終端 9=くす玉
+    static constexpr NoteType TJA_DIGIT_TO_TYPE[10] = {
+        NoteType::NONE,          // 0
+        NoteType::DON,           // 1
+        NoteType::KAT,           // 2
+        NoteType::DON_L,         // 3
+        NoteType::KAT_L,         // 4
+        NoteType::ROLL_HEAD,     // 5
+        NoteType::ROLL_HEAD_L,   // 6
+        NoteType::BALLOON_HEAD,  // 7
+        NoteType::TAIL,          // 8
+        NoteType::KUSUDAMA       // 9
+    };
+
+    int parsed_type = -1;
+    if (TryParseInt(item, parsed_type) && parsed_type >= 0 && parsed_type <= 9) {
+        note->type = TJA_DIGIT_TO_TYPE[parsed_type];
+    }
+    else {
+        note->type = NoteType::NONE;
+    }
+
     note->index = state.index;
     note->scroll_y = state.scroll_y_modifier;
 
@@ -503,7 +584,16 @@ void TJAParser::handle_measure(const std::string& part, ParserState& state) {
     trim(val);
     size_t pos = val.find('/');
     if (pos != std::string::npos) {
-        state.time_signature = std::stof(val.substr(0, pos)) / std::stof(val.substr(pos + 1));
+        float numerator = 4.0f;
+        float denominator = 4.0f;
+        if (TryParseFloat(val.substr(0, pos), numerator) &&
+            TryParseFloat(val.substr(pos + 1), denominator) &&
+            numerator > 0.0f && denominator > 0.0f) {
+            state.time_signature = numerator / denominator;
+        }
+        else {
+            state.time_signature = 4.0f / 4.0f;
+        }
     }
 }
 
@@ -567,19 +657,30 @@ void TJAParser::handle_scroll(const std::string& part, ParserState& state) {
 void TJAParser::handle_bpmchange(const std::string& part, ParserState& state) {
     std::string val = part;
     trim(val);
-    float parsed_bpm = std::stof(val);
-    if (state.scroll_type == ScrollType::BMSCROLL || state.scroll_type == ScrollType::HBSCROLL) {
-        // BMSCROLL/HBSCROLL: BPM変化を累積倍率として scroll_x_modifier に乗算して保持する。
-        // tja.py では TimelineObject.bpmchange として記録し再生時に累積するが、
-        // C++ では GamePlay が Timeline を走査する機構がないため、
-        // パース時点で scroll_x_modifier に累積倍率を焼き込む方式を採用する。
-        // (note.bpm はパース時の実BPMを保持し、GamePlay の BPM 補正には使わない)
+    float parsed_bpm = state.bpm > 0.0f ? state.bpm : 120.0f;
+    if (!TryParseFloat(val, parsed_bpm) || parsed_bpm <= 0.0f) {
+        parsed_bpm = state.bpm > 0.0f ? state.bpm : 120.0f;
+    }
+    if (state.scroll_type == ScrollType::BMSCROLL) {
+        // BMSCROLL: BPM変化はタイミング計算 (hit_ms) にのみ反映する。
+        // スクロール速度は BPM に依存しないため scroll_x_modifier は変更しない。
+        // note.bpm=120 固定 + scroll_x に #SCROLL 値そのものを格納し GamePlay の BPM補正を無効化。
+        state.bpm = parsed_bpm;
+        state.bpmchange_last_bpm = parsed_bpm;
+        TimelineObject* obj = new TimelineObject();
+        obj->hit_ms = current_ms_;
+        obj->bpm = parsed_bpm;
+        state.curr_timeline->push_back(obj);
+    }
+    else if (state.scroll_type == ScrollType::HBSCROLL) {
+        // HBSCROLL: BPM変化をタイミング計算と同時にスクロール速度にも反映する。
+        // #HBSCROLL 宣言時の BPM を基準とした累積倍率を scroll_x_modifier に焼き込む。
+        // note.bpm=120 固定とし GamePlay では BASE × scroll_x のみでスクロール速度を算出。
         float ratio = (state.bpmchange_last_bpm > 0.0f) ? parsed_bpm / state.bpmchange_last_bpm : 1.0f;
+        state.bpm = parsed_bpm;  // ms_per_measure の計算に必須（これが抜けていたバグ）
         state.bpmchange_last_bpm = parsed_bpm;
         state.bpm_scroll_accum *= ratio;
         state.scroll_x_modifier *= ratio;
-
-        // Timeline にも記録 (将来的に BMSCROLL ランタイム処理を実装する場合に使用)
         TimelineObject* obj = new TimelineObject();
         obj->hit_ms = current_ms_;
         obj->bpmchange = ratio;
@@ -749,12 +850,15 @@ void TJAParser::handle_gogoend(ParserState& state) {
 void TJAParser::handle_delay(const std::string& part, ParserState& state) {
     std::string val = part;
     trim(val);
-    float delay_ms = std::stof(val) * 1000.0f;
-    if (state.scroll_type == ScrollType::BMSCROLL || state.scroll_type == ScrollType::HBSCROLL) {
-        if (delay_ms > 0) state.delay_current += delay_ms;
-    }
-    else {
-        current_ms_ += delay_ms;
+    float delay_seconds = 0.0f;
+    if (TryParseFloat(val, delay_seconds)) {
+        float delay_ms = delay_seconds * 1000.0f;
+        if (state.scroll_type == ScrollType::BMSCROLL || state.scroll_type == ScrollType::HBSCROLL) {
+            if (delay_ms > 0) state.delay_current += delay_ms;
+        }
+        else {
+            current_ms_ += delay_ms;
+        }
     }
 }
 
@@ -906,7 +1010,7 @@ void TJAParser::notes_to_position(int diff) {
                 current_ms_ += ms_per_measure;
             }
             else {
-                increment = ms_per_measure / static_cast<float>(bar_length);
+                increment = (bar_length > 0) ? ms_per_measure / static_cast<float>(bar_length) : ms_per_measure;
             }
 
             for (char ch : part) {
@@ -917,7 +1021,7 @@ void TJAParser::notes_to_position(int diff) {
                     continue;
                 }
                 if (ch == '9' && state.prev_note &&
-                    static_cast<int>(state.prev_note->type) == 9) {
+                    state.prev_note->type == NoteType::KUSUDAMA) {
                     state.delay_last_note_ms = current_ms_;
                     current_ms_ += increment;
                     continue;
@@ -946,19 +1050,18 @@ void TJAParser::notes_to_position(int diff) {
 }
 
 std::wstring TJAParser::ReadTitle(const fs::path& path) {
-    std::ifstream f(path, std::ios::binary);
-    if (!f.is_open()) return path.stem().wstring();
+    std::ifstream f;
+    if (!OpenInputFile(f, path)) return path.stem().wstring();
 
-    // UTF-8 BOM���o�iEF BB BF�j
     bool isUtf8 = false;
     {
         unsigned char bom[3] = {};
         f.read(reinterpret_cast<char*>(bom), 3);
         if (bom[0] == 0xEF && bom[1] == 0xBB && bom[2] == 0xBF) {
-            isUtf8 = true;  // BOM�t��UTF-8
+            isUtf8 = true;
         }
         else {
-            f.seekg(0);  // BOM�Ȃ� �� �擪�ɖ߂�
+            f.seekg(0);
         }
     }
 

@@ -19,7 +19,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     config.Load();
 
     ChangeWindowMode(TRUE);
-    SetWaitVSyncFlag(TRUE);
+    SetWaitVSyncFlag(config.vsync ? TRUE : FALSE);
     SetGraphMode(1280, 720, 32);
     SetWindowSizeChangeEnableFlag(TRUE, FALSE);
     SetWindowSize(1280, 720);
@@ -27,9 +27,33 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
     int fontAdded = AddFontResourceEx(
         L"Theme\\default\\Fonts\\FOT-OedoKtr.otf", FR_PRIVATE, NULL);
-    OutputDebugStringW(fontAdded > 0
-        ? L"[Font] FOT-OedoKtr loaded OK\n"
-        : L"[Font] FOT-OedoKtr FAILED - check path!\n");
+    {
+        wchar_t buf[128];
+        swprintf_s(buf, L"[Font] AddFontResourceEx result = %d (0=失敗。パス/作業フォルダを確認)\n", fontAdded);
+        OutputDebugStringW(buf);
+    }
+
+    // --- デバッグ用: 登録されたフォントのうち「Oedo」を含む名前を列挙 ---
+    // CreateFontToHandle に渡す FontName はここで出力される名前と完全一致している必要がある
+    {
+        HDC hdc = GetDC(NULL);
+        LOGFONTW lf = {};
+        lf.lfCharSet = DEFAULT_CHARSET;
+        EnumFontFamiliesExW(hdc, &lf,
+            [](const LOGFONTW* lpelfe, const TEXTMETRICW*, DWORD, LPARAM) -> int {
+                if (wcsstr(lpelfe->lfFaceName, L"Oedo") != nullptr) {
+                    wchar_t buf[160];
+                    swprintf_s(buf, L"[Font] Registered family containing \"Oedo\": \"%s\"\n", lpelfe->lfFaceName);
+                    OutputDebugStringW(buf);
+                }
+                return 1;
+            }, 0, 0);
+        ReleaseDC(NULL, hdc);
+    }
+
+    SetAlwaysRunFlag(TRUE);          // フォーカスを失っても動作継続
+    SetUseDirectDrawFlag(FALSE);     // Direct3D モードを使用（描画効率UP）
+    SetMultiThreadFlag(TRUE);        // マルチスレッド処理を有効化
 
     if (DxLib_Init() == -1) return -1;
     SetDrawScreen(DX_SCREEN_BACK);
@@ -83,8 +107,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
                     const SongEntry& song = ds->GetSongEntry();
                     TJAParser parser(song.tjaPath);
                     SongInfo chart = parser.parse(diffId);
+                    const PlayOptions& opts = ds->GetPlayOptions();
                     currentScene = std::make_unique<GamePlay>(
-                        song, diffId, std::move(chart), autoPlay);
+                        song, diffId, std::move(chart), autoPlay, opts);
                 }
                 else {
                     currentScene = std::make_unique<SongSelect>();

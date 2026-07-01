@@ -1,9 +1,15 @@
+﻿#pragma execution_character_set("utf-8")
 #include "TitleScreen.h"
 #include <cstring>
 
 TitleScreen::TitleScreen() {
-    fontTitle = CreateFontToHandle(L"FOT-OedoKtr", 48, 4, DX_FONTTYPE_ANTIALIASING_4X4);
-    fontSub = CreateFontToHandle(L"FOT-OedoKtr", 24, 2, DX_FONTTYPE_ANTIALIASING_4X4);
+    fontTitle = CreateFontToHandle(L"FOT-江戸勘亭流 Std E", 48, 4, DX_FONTTYPE_ANTIALIASING_4X4, DX_CHARSET_DEFAULT);
+    fontSub = CreateFontToHandle(L"FOT-江戸勘亭流 Std E", 24, 2, DX_FONTTYPE_ANTIALIASING_4X4, DX_CHARSET_DEFAULT);
+
+
+    OutputDebugStringW(fontTitle != -1
+        ? L"[Font] TitleScreen fontTitle created\n"
+        : L"[Font] TitleScreen fontTitle FAILED (FontName not found)\n");
 }
 
 TitleScreen::~TitleScreen() {

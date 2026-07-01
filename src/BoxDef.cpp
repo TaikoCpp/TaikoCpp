@@ -27,7 +27,13 @@ std::wstring DecodeToWide(const std::string& text, int codepage) {
 }
 
 std::string ReadFileBytes(const fs::path& path) {
-    std::ifstream f(path, std::ios::binary);
+    // platform-safe open for paths that may contain non-ASCII characters
+    std::ifstream f;
+#if defined(_WIN32)
+    f.open(path.wstring(), std::ios::binary);
+#else
+    f.open(path.string(), std::ios::binary);
+#endif
     if (!f.is_open()) return {};
     return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
@@ -138,7 +144,37 @@ void ApplyGenreDefaults(const std::wstring& genre, BoxDefInfo& info) {
 } // namespace
 
 bool BoxDefParser::Exists(const fs::path& dir) {
-    return fs::exists(dir / "box.def");
+    try {
+        // まず標準パスでチェック
+        fs::path p = dir / "box.def";
+        if (fs::exists(p) && fs::is_regular_file(p)) return true;
+
+        // ディレクトリ自体が存在するか確認
+        if (!fs::exists(dir) || !fs::is_directory(dir)) return false;
+
+        // フォルダ内のファイル名を列挙して case-insensitive に "box.def" を探す
+#if defined(_WIN32)
+        for (const auto& e : fs::directory_iterator(dir)) {
+            if (!e.is_regular_file()) continue;
+            std::wstring name = e.path().filename().wstring();
+            std::wstring lower;
+            lower.reserve(name.size());
+            for (wchar_t c : name) lower.push_back(std::towlower(c));
+            if (lower == L"box.def") return true;
+        }
+#else
+        for (const auto& e : fs::directory_iterator(dir)) {
+            if (!e.is_regular_file()) continue;
+            std::string name = e.path().filename().string();
+            std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+            if (name == "box.def") return true;
+        }
+#endif
+    }
+    catch (...) {
+        // 例外発生時は false を返す（ファイルアクセス権などで落ちるのを防ぐ）
+    }
+    return false;
 }
 
 BoxDefInfo BoxDefParser::Parse(const fs::path& dir) {

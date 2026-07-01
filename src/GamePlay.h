@@ -30,15 +30,15 @@ struct NoteSprite {
 
 class GamePlay : public IScene {
 public:
-    GamePlay(const SongEntry& song, int diffId, SongInfo&& chart, bool autoPlay = false);
+    GamePlay(const SongEntry& song, int diffId, SongInfo&& chart, bool autoPlay = false, const PlayOptions& options = PlayOptions());
     ~GamePlay();
     bool Update() override;
     void Draw() override;
-
 private:
     SongEntry songEntry;
     int diffId;
     SongInfo chart;
+    PlayOptions playOptions; 
 
     std::vector<ActiveNote> notes;
     size_t nextNoteIndex = 0;
@@ -70,6 +70,14 @@ private:
     int sndWave = -1;
     int fontUI = -1;
     int fontScore = -1;
+    int fontSongTitle = -1;          // 右上の曲名表示用フォント (ＤＦＰ勘亭流)
+    int titleAnimStartMs = 0;        // 右上曲名フェードアニメーションの基準時刻
+    int   titleScrollLastMs = 0;
+    int   titleScrollPauseUntilMs = 0;
+    float titleScrollOffset = 0.0f;
+    int   titleScrollDir = 1;
+    int rtTitle = -1;   // 曲タイトル事前描画バッファ
+    int rtNumLabel = -1;   // 「○曲目」事前描画バッファ
 
     // スキン画像
     int backgroundImage = -1;
@@ -109,6 +117,14 @@ private:
     static constexpr float JUDGE_RYO_MS = 35.0f;
     static constexpr float JUDGE_KA_MS = 80.0f;
 
+    // ↓ 追加：ノーツが右端(x=1280)から判定枠(JUDGE_X=410)まで移動するのに要する時間
+// = (1280 - 410) / (0.435 * 1.0) = 2000ms
+    static constexpr float PREROLL_MS =
+        (1280.0f - static_cast<float>(JUDGE_X)) / (BASE_SCROLL_PX_PER_MS * SCROLL_SPEED);
+
+    // 既存の bool audioStarted などはない → 追加
+    bool audioStarted = false;   // プリロール後に音声開始したか
+
     // Notes.png スプライト定義 (src_x, src_w, row0_y=0)
     // [0]判定枠  [1]小ドン  [2]小カッ  [3]大ドン  [4]大カッ
     // [5]バルーン [6]ロールbody小  [7]大バルーン顔  [8]ロールbody大  [9]kusudama
@@ -138,6 +154,8 @@ private:
     void DrawNote(const Note& note, float x) const;
     void DrawNoteSprite(int col, int row, int cx, int cy, int dst_h, bool trans = true) const;
     void DrawBarLines() const;
+    void DrawSongTitleCycle();
+    void DrawSongTitleCycleText(const std::wstring& text, int x, int y, float alpha) const;
     std::wstring PathToWide(const std::filesystem::path& p) const;
     int FindFreeSoundSlot(const int* sndBuf, int& idx) const;
 };

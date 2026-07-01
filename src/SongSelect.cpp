@@ -1,6 +1,12 @@
 ﻿#include "SongSelect.h"
 #include "TJAParser.h"
 #include <algorithm>
+#include <cwctype>
+#include <stack>
+
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -27,21 +33,46 @@ void SongSelect::DrawRoundRect(int x1, int y1, int x2, int y2, int r,
 }
 
 SongSelect::SongSelect() {
-    fontLarge = CreateFontToHandle(L"FOT-OedoKtr", 38, 3, DX_FONTTYPE_ANTIALIASING_4X4);
-    fontNormal = CreateFontToHandle(L"FOT-OedoKtr", 28, 2, DX_FONTTYPE_ANTIALIASING_4X4);
-    fontUI = CreateFontToHandle(L"FOT-OedoKtr", 22, 1, DX_FONTTYPE_ANTIALIASING_4X4);
+    fontLarge = CreateFontToHandle(L"FOT-大江戸勘亭流 Std E", 38, 3, DX_FONTTYPE_ANTIALIASING_4X4, DX_CHARSET_DEFAULT);
+    fontNormal = CreateFontToHandle(L"FOT-大江戸勘亭流 Std E", 28, 2, DX_FONTTYPE_ANTIALIASING_4X4, DX_CHARSET_DEFAULT);
+    fontUI = CreateFontToHandle(L"FOT-大江戸勘亭流 Std E", 22, 1, DX_FONTTYPE_ANTIALIASING_4X4, DX_CHARSET_DEFAULT);
 
     sndDong = LoadSoundMem(L"Theme\\default\\sounds\\dong.wav");
     sndKa = LoadSoundMem(L"Theme\\default\\sounds\\ka.wav");
 
-    songsRoot = fs::path("songs");
+    // 起動時の songsRoot 解決（exe 隣の songs を優先）
+#if defined(_WIN32)
+    wchar_t exePathBuf[MAX_PATH] = {};
+    fs::path exeDir;
+    if (GetModuleFileNameW(nullptr, exePathBuf, MAX_PATH) > 0) {
+        exeDir = fs::path(exePathBuf).parent_path();
+    } else {
+        exeDir = fs::current_path();
+    }
+    std::vector<fs::path> candidates = {
+        exeDir / L"songs",
+        fs::current_path() / L"songs",
+        exeDir.parent_path() / L"songs",
+        exeDir
+    };
+    songsRoot.clear();
+    for (const auto& c : candidates) {
+        try {
+            if (fs::exists(c) && fs::is_directory(c)) { songsRoot = c; break; }
+        } catch (...) {}
+    }
+    if (songsRoot.empty()) songsRoot = exeDir / L"songs";
+#else
+    songsRoot = fs::current_path() / "songs";
+#endif
+
     currentDir = songsRoot;
     LoadDirectory(currentDir);
 
     if (items.empty()) {
         SelectItem dummy;
         dummy.type = SelectItemType::Song;
-        dummy.title = L"うんち！";
+        dummy.title = L"Songフォルダにtjaがありません。";
         items.push_back(dummy);
     }
 
@@ -56,19 +87,36 @@ SongSelect::~SongSelect() {
     if (sndDong != -1) DeleteSoundMem(sndDong);
 }
 
+// 改良: 再帰を明示的スタックに変更し、拡張子比較は wchar_t 小文字化で安定化
 std::vector<fs::path> SongSelect::FindTjaFilesInDirectory(const fs::path& dir) const {
     std::vector<fs::path> result;
     if (!fs::exists(dir)) return result;
 
-    for (const auto& entry : fs::directory_iterator(dir)) {
-        if (entry.is_regular_file() && entry.path().extension() == L".tja") {
-            result.push_back(entry.path());
+    // スタックベースで深さ優先走査（再帰オーバーヘッド軽減）
+    std::vector<fs::path> stack;
+    stack.reserve(64);
+    stack.push_back(dir);
+
+    while (!stack.empty()) {
+        fs::path p = std::move(stack.back());
+        stack.pop_back();
+        try {
+            for (const auto& e : fs::directory_iterator(p)) {
+                if (e.is_regular_file()) {
+                    std::wstring ext = e.path().extension().wstring();
+                    std::transform(ext.begin(), ext.end(), ext.begin(), ::towlower);
+                    if (ext == L".tja") result.push_back(e.path());
+                }
+                else if (e.is_directory()) {
+                    stack.push_back(e.path());
+                }
+            }
         }
-        else if (entry.is_directory()) {
-            auto sub = FindTjaFilesInDirectory(entry.path());
-            result.insert(result.end(), sub.begin(), sub.end());
+        catch (...) {
+            // 許可エラーやアクセス不可は無視して続行
         }
     }
+
     return result;
 }
 
@@ -81,27 +129,130 @@ void SongSelect::LoadDirectory(const fs::path& dir) {
 
     if (!fs::exists(dir)) return;
 
+    // 特殊ケース: 開いているディレクトリ自身に box.def がある場合、
+    // そのフォルダをヘッダ表示し、直下の .tja を一覧表示（再帰しない）。
+    if (dir != songsRoot && BoxDefParser::Exists(dir)) {
+        SelectItem folderItem;
+        folderItem.type = SelectItemType::Folder;
+        folderItem.path = dir;
+        folderItem.boxInfo = BoxDefParser::Parse(dir);
+        folderItem.title = folderItem.boxInfo.title;
+        items.push_back(std::move(folderItem));
+
+        try {
+            // 直下 tja を列挙（大文字小文字を吸収）
+            for (const auto& entry : fs::directory_iterator(dir)) {
+                if (!entry.is_regular_file()) continue;
+                std::wstring ext = entry.path().extension().wstring();
+                std::transform(ext.begin(), ext.end(), ext.begin(), ::towlower);
+                if (ext != L".tja") continue;
+
+                // タイトル取得はキャッシュを使う（重いパースを避ける）
+                std::wstring key = entry.path().wstring();
+                std::wstring title;
+                auto it = titleCache.find(key);
+                if (it != titleCache.end()) {
+                    title = it->second;
+                } else {
+                    title = TJAParser::ReadTitle(entry.path());
+                    titleCache.emplace(key, title);
+                }
+
+                SelectItem item;
+                item.type = SelectItemType::Song;
+                item.path = entry.path();
+                item.title = title;
+                items.push_back(std::move(item));
+            }
+        }
+        catch (...) {
+            // アクセス不能は無視
+        }
+
+        std::stable_sort(items.begin(), items.end(),
+            [](const SelectItem& a, const SelectItem& b) {
+                if (a.type != b.type) return a.type < b.type;
+                return a.title < b.title;
+            });
+        return;
+    }
+
+    // 通常の振る舞い（親ディレクトリを一覧）。フォルダ一覧を作ってから、
+    // その配下の .tja は個別表示しない（box.def フォルダに吸収される）。
+    std::vector<fs::path> folderPaths;
+    folderPaths.reserve(32);
     for (const auto& entry : fs::directory_iterator(dir)) {
         if (!entry.is_directory()) continue;
-        if (!BoxDefParser::Exists(entry.path())) continue;
+
+        bool hasBox = BoxDefParser::Exists(entry.path());
+
+        bool hasTja = false;
+        try {
+            for (const auto& child : fs::directory_iterator(entry.path())) {
+                if (!child.is_regular_file()) continue;
+                std::wstring ext = child.path().extension().wstring();
+                std::transform(ext.begin(), ext.end(), ext.begin(), ::towlower);
+                if (ext == L".tja") { hasTja = true; break; }
+            }
+        }
+        catch (...) {}
+
+        if (!hasBox && !hasTja) continue;
 
         SelectItem item;
         item.type = SelectItemType::Folder;
         item.path = entry.path();
         item.boxInfo = BoxDefParser::Parse(entry.path());
         item.title = item.boxInfo.title;
-        items.push_back(item);
+        items.push_back(std::move(item));
+
+        folderPaths.push_back(entry.path());
     }
 
     auto tjaFiles = FindTjaFilesInDirectory(dir);
     std::sort(tjaFiles.begin(), tjaFiles.end());
 
+    // helper: base が path の先頭（祖先）であるかを判定
+    auto IsSubpath = [](const fs::path& base, const fs::path& path) {
+        fs::path b = base.lexically_normal();
+        fs::path p = path.lexically_normal();
+        auto itb = b.begin();
+        auto itp = p.begin();
+        for (; itb != b.end() && itp != p.end(); ++itb, ++itp) {
+            if (*itb != *itp) return false;
+        }
+        return itb == b.end();
+    };
+
+    auto IsUnderAnyFolder = [&](const fs::path& filePath) {
+        fs::path parent = filePath.parent_path();
+        for (const auto& fp : folderPaths) {
+            if (parent == fp) return true;
+            if (IsSubpath(fp, parent)) return true;
+        }
+        return false;
+    };
+
+    items.reserve(items.size() + tjaFiles.size());
+
     for (const auto& tjaPath : tjaFiles) {
+        if (IsUnderAnyFolder(tjaPath)) continue;
+
+        std::wstring key = tjaPath.wstring();
+        std::wstring title;
+        auto it = titleCache.find(key);
+        if (it != titleCache.end()) {
+            title = it->second;
+        } else {
+            title = TJAParser::ReadTitle(tjaPath);
+            titleCache.emplace(key, title);
+        }
+
         SelectItem item;
         item.type = SelectItemType::Song;
         item.path = tjaPath;
-        item.title = TJAParser::ReadTitle(tjaPath);
-        items.push_back(item);
+        item.title = title;
+        items.push_back(std::move(item));
     }
 
     std::stable_sort(items.begin(), items.end(),
