@@ -3,12 +3,13 @@
 #include <vector>
 #include <string>
 #include "IScene.h"
-#include "SongSelect.h"  // SongEntry の定義を含む
+#include "SongSelect.h"  // SongEntry を含む
+#include "SongInfo.h"    // PlayOptions を共通で使うため包含
 
 struct DiffEntry {
     int    diffId;       // 0=Easy 1=Normal 2=Hard 3=Oni 4=Edit
-    std::wstring label;  // 表示名
-    int    level;        // 星レベル
+    std::wstring label;  // 表示ラベル
+    int    level;        // 表示レベル
 };
 
 class DiffSelect : public IScene {
@@ -18,9 +19,12 @@ public:
     bool Update() override;
     void Draw() override;
 
-    // 決定された難易度ID（-1 = キャンセル / 未決定）
+    // 選択難易度ID (未選択時 -1)
     int GetSelectedDiffId() const { return decided ? diffs[selectedIndex].diffId : -1; }
     const SongEntry& GetSongEntry() const { return songEntry; }
+
+    // 演奏オプション取得
+    const PlayOptions& GetPlayOptions() const { return options; }
 
 private:
     SongEntry    songEntry;
@@ -28,21 +32,29 @@ private:
     int          selectedIndex = 0;
     bool         decided = false;
 
-    // フォントハンドル
+    // フォント
     int fontTitle = -1;
     int fontButton = -1;
     int fontLevel = -1;
 
-    // サウンド
+    // 効果音
     int sndDong = -1;
     int sndKa = -1;
 
-    // キー入力（エッジ検出）
+    // キー入力の前フレーム状態
     bool prevD = false, prevK = false;
     bool prevJ = false, prevF = false;
     bool prevEsc = false;
 
-    // 難易度ごとの色
+    static constexpr int OPT_ROW_COUNT = 3; // 音符 / 速度 / 隠し
+    PlayOptions options;
+    bool optionsVisible = false;
+    int  optionsSel = 0; // 0=音符, 1=速度, 2=隠し
+    bool prevO = false;
+    bool prevMouseLeft = false;
+    void CycleOption(int row, int delta); // ← 追加
+
+    // ユーティリティ
     static unsigned int DiffColor(int diffId);
     static unsigned int DiffColorDark(int diffId);
     static const wchar_t* DiffName(int diffId);
